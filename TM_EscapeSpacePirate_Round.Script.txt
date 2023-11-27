@@ -379,6 +379,7 @@ Void SetML() {
                 else {
                     Quad_Event_Image.ImageUrl = C_ImageURL_Event_Room_Discovered;
                 }
+                //test commit
 
                 AnimMgr.Flush(Frame_Event);
                 AnimMgr.Add(Frame_Event, "<a pos=\"-44.46 0\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
