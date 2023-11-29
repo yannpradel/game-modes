@@ -9,7 +9,9 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 #Setting S_ScriptEnvironment "production"
 #Setting S_TrustClientSimu False
-#Setting S_UseCrudeExtrapolation False
+#Setting S_EnableJoinLeaveNotifications False
+
+//pas sur que ce soit le bon setting à enlever mais je crois que si
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Constants
@@ -24,6 +26,8 @@
 #Const C_Method_Team "EscapeSpacePirate.Servers.Team"
 #Const C_Method_Teams "EscapeSpacePirate.Servers.Teams"
 
+#Const C_ImageURL_LiveRanking_Overlay "https://cdn.discordapp.com/attachments/1148369261056757820/1175901454192627843/Live_ranks.png?ex=656cea91&is=655a7591&hm=5a20095b310547e564a3407fcea8dac45a2c1c42f8a51c3f8053bc5fa70c6a5a&"
+#Const C_ImageURL_LiveRanking_Arrow "https://cdn.discordapp.com/attachments/922936935155105853/1177245127547293706/Fleches.png?ex=6571cdf6&is=655f58f6&hm=947ea02ba1bcf6c26cc079d02a91a42f798b0c5f10f04c805f22daf585b71020&"
 #Const C_ImageURL_Room_1 "https://cdn.discordapp.com/attachments/922936935155105853/1175911664361689168/CurrentR1Status.png?ex=656cf414&is=655a7f14&hm=31jbt1VznyypTWrzvnje2KeKD12USGUkQ6P1erDvglc0pz0mcr8fl0de1e5b87548b4e7985da2897b9&"
 #Const C_ImageURL_Room_2 "https://cdn.discordapp.com/attachments/922936935155105853/1175911664583974912/CurrentR2Status.png?ex=656cf414&is=655a7f14&hm=2c6564f3de7484265022f7fb307f89471b1bd441101115bf6db5f1b5ade512dd&"
 #Const C_ImageURL_Room_3 "https://cdn.discordapp.com/attachments/922936935155105853/1175911690831925398/CurrentR3Status.png?ex=656cf41a&is=655a7f1a&hm=34cfd0c145nEVR515JsB8NB94DYmA4W8NDTNYhAQw23f20c9edb3bd34cab8e911&"
@@ -126,13 +130,18 @@ StateMgr::Unload();
 
 ***Match_StartServer***
 ***
-UsePvPCollisions = True;
+UIModules::UnloadModules(["UIModule_Rounds_SmallScoresTable",
+"UIModule_Race_Chrono", //on est sur d'enlever le chrono ?
+"UIModule_Race_RespawnHelper",
+"UIModule_Race_TimeGap"]);
+
 UsePvECollisions = True;
 ***
 
 
 ***Match_AfterLoadHud***
 ***
+
 
 UIManager.UIAll.PlayerDisableFreeCam = True;
 SetML();
@@ -150,6 +159,7 @@ declare K_EscapeTeamInfo EscapeGameSpacePirate_CurrentTeam = K_EscapeTeamInfo {
 
 declare netwrite K_EscapeDisplayTeamInfo[] Net_EscapeGameSpacePirate_Teams for Teams[0] = [];
 declare netwrite Integer Net_EscapeGame_Live_Ranking_Update for Teams[0] = 0;
+declare netwrite Integer Net_EscapeGame_Live_Displayer_CP for Teams[0] = 0;
 
 Race::SetRespawnBehaviour(Race::C_RespawnBehaviour_NeverGiveUp);
 ***
@@ -179,6 +189,9 @@ XmlRpc::SendCallback(C_Callback_Team, [EscapeGameSpacePirate_CurrentTeam.tojson(
 
 ***Match_Yield***
 ***
+
+StateMgr::ForcePlayersStates([StateMgr::C_State_Waiting]);
+
 // Manage XmlRpc events
 foreach (Event in XmlRpc.PendingEvents) {
     if (Event.Type == CXmlRpcEvent::EType::CallbackArray) {
@@ -200,12 +213,12 @@ foreach (Event in XmlRpc.PendingEvents) {
 ***Match_PlayLoop***
 ***
 
+
 //CloseInGameMenu(CMlScriptIngame::EInGameMenuResult::Resume);
 foreach (Event in Race::GetPendingEvents()) {
 	// Waypoint
 	if (Event.Type == Events::C_Type_Waypoint) {
         if (Event.Player != Null) {
-
             if(Event.Player.Name == EscapeGameSpacePirate_CurrentTeam.Player1Login) EscapeGameSpacePirate_CurrentTeam.CpPlayer1 += 1;
             else if(Event.Player.Name == EscapeGameSpacePirate_CurrentTeam.Player2Login) EscapeGameSpacePirate_CurrentTeam.CpPlayer2 += 1;
 
@@ -266,6 +279,8 @@ foreach (Event in XmlRpc.PendingEvents) {
 
 Text[] GetAllAssets() {
     declare Text[] Assets = [
+        C_ImageURL_LiveRanking_Overlay,
+        C_ImageURL_LiveRanking_Arrow,
         C_ImageURL_Room_1,
         C_ImageURL_Room_2,
         C_ImageURL_Room_3,
@@ -283,7 +298,7 @@ Text[] GetAllAssets() {
 
 
 Void SetML() {
-// Add assets in the XML speed up process to load the images
+// load all images to load them with one esc keyboard press
     declare Text Quads;
     foreach (Asset in GetAllAssets()) {
         Quads ^= """<quad image="{{{Asset}}}" hidden=1 size="0 0"/>""";
@@ -296,6 +311,8 @@ Void SetML() {
         </stylesheet>
         <framemodel id="framemodel-team-cps">
             <frame id="frame-team-cps">
+                <label id="label-press" pos="-25.5 90" z-index="-1" opacity="1" textcolor="00ff00ff" size="200 4.2" text="PRESS" textsize="2" textfont="RajdhaniMono" halign="right"/>
+                <label id="label-escape" pos="25 90" z-index="-1" opacity="1" textcolor="ffff00ff" size="200 4.2" text="ESCAPE" textsize="2" textfont="RajdhaniMono" halign="right"/>
                 <quad id="quad-room-1" pos="-144.29 90.3" z-index="0" size="35 10.1" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_Room_1}}}"/>
                 <quad id="quad-room-2" pos="-93.57 97" z-index="0" size="35 10.1" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_Room_Uncleared}}}"/>
                 <quad id="quad-room-3" pos="-42.86 97" z-index="0" size="35 10.1" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_Room_Uncleared}}}"/>
@@ -306,14 +323,16 @@ Void SetML() {
         </framemodel>
         <framemodel id="framemodel-event">
             <quad id="quad-background" z-index="-1" size="44.46 20.93" bgcolor="000" opacity="1" halign="center" valign="center" image="{{{C_ImageURL_Event_Room_Discovered}}}"/>
-            <label id="label-event-name-1" text="EVENT" scriptevents=2 pos="-14 2.8" valign="center2" halign="left" textsize="4.3" textfont="RajdhaniMono"/>
-			<label id="label-event-name-2" text="EVENT" scriptevents=2 pos="-14 -2.3" valign="center2" halign="left" textsize="4.3" textfont="RajdhaniMono"/>
+            <label id="label-event-name-1" text="" textcolor="ffffffff" scriptevents=2 pos="-14 2.8" valign="center2" halign="left" textsize="4.3" textfont="RajdhaniMono"/>
+			<label id="label-event-name-2" text="" textcolor="ffffffff" scriptevents=2 pos="-14 -2.3" valign="center2" halign="left" textsize="4.3" textfont="RajdhaniMono"/>
+        </framemodel>
+        <framemodel id="framemodel-arrow">
+            <quad id="quad-arrow-display" opacity="0.8" scriptevents="1" pos="-83 20" z-index="0" size="7 11.2" image="{{{C_ImageURL_LiveRanking_Arrow}}}"/>
         </framemodel>
         <framemodel id="framemodel_live_ranking">
             <label id="label-current-cp-0" pos="-71.7 20.1" z-index="0" textcolor="ffffffff" size="200 4.2" text="0" textsize="14" textfont="RajdhaniMono" halign="right"/>
             <label id="label-current-cp" pos="-64.4 20.1" z-index="0"  textcolor="ffffffff" size="200 4.2" text="1" textsize="14" textfont="RajdhaniMono" halign="right"/>
-            <quad id="quad-overlay" pos="-159 12" z-index="0" size="100 57" bgcolor="FFF" image="https://cdn.discordapp.com/attachments/1148369261056757820/1175901454192627843/Live_ranks.png?ex=656cea91&is=655a7591&hm=5a20095b310547e564a3407fcea8dac45a2c1c42f8a51c3f8053bc5fa70c6a5a&"/>
-            <quad id="quad-arrow-display" opacity="0.8" scriptevents="1" pos="-63 -12.5" z-index="0" size="7 11.2" image="https://cdn.discordapp.com/attachments/922936935155105853/1177245127547293706/Fleches.png?ex=6571cdf6&is=655f58f6&hm=947ea02ba1bcf6c26cc079d02a91a42f798b0c5f10f04c805f22daf585b71020&"/>
+            <quad id="quad-overlay" pos="-159 12" z-index="0" size="100 57" bgcolor="FFF" image="{{{C_ImageURL_LiveRanking_Overlay}}}"/>
             <frame id="frame-players-in-team" pos="-159 -13">
                 <frameinstance modelid="players" pos="0 20"/>
                 <frameinstance modelid="players" pos="0 12.3"/>
@@ -333,7 +352,10 @@ Void SetML() {
             <frame id="frame-ranking" scale="0.8" pos="-33 30">
                 <frameinstance modelid="framemodel_live_ranking"/>
             </frame>
-            <frameinstance modelid="framemodel-team-cps" pos="0 0" cp_number="1" scale="1"/>
+            <frame id="frame-arrow-display">
+                <frameinstance modelid="framemodel-arrow"/>
+            </frame>
+            <frameinstance modelid="framemodel-team-cps" pos="0 0" scale="1"/>
             {{{Quads}}}
         </frame>
         <script><!--
@@ -352,6 +374,8 @@ Void SetML() {
             #Const C_ImageURL_Room_5 {{{dump(C_ImageURL_Room_5)}}}
             #Const C_ImageURL_Room_6 {{{dump(C_ImageURL_Room_6)}}}
 
+            #Const C_ImageURL_LiveRanking_Overlay {{{dump(C_ImageURL_LiveRanking_Overlay)}}}
+            #Const C_ImageURL_LiveRanking_Arrow {{{dump(C_ImageURL_LiveRanking_Arrow)}}}
             #Const C_ImageURL_Room_Uncleared {{{dump(C_ImageURL_Room_Uncleared)}}}
             #Const C_ImageURL_Room_Cleared {{{dump(C_ImageURL_Room_Cleared)}}}
             #Const C_ImageURL_Event_Room_Discovered {{{dump(C_ImageURL_Event_Room_Discovered)}}}
@@ -373,17 +397,18 @@ Void SetML() {
 
                 declare CMlQuad Quad_Event_Image <=> (Frame_Event.GetFirstChild("quad-background") as CMlQuad);
 
-                if(_CP == 6) {
+                if(_CP == 7) {
                     Quad_Event_Image.ImageUrl = C_ImageURL_Event_Map_Finished;
                 }
                 else {
                     Quad_Event_Image.ImageUrl = C_ImageURL_Event_Room_Discovered;
                 }
-                //test commit
+
+                Frame_Event.Visible = True;
 
                 AnimMgr.Flush(Frame_Event);
                 AnimMgr.Add(Frame_Event, "<a pos=\"-44.46 0\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
-                AnimMgr.Add(Frame_Event, "<a pos=\"0 0\"/>",Now + C_EventAnimDuration, C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
+                AnimMgr.Add(Frame_Event, "<a hidden=1 pos=\"0 0\"/>",Now + C_EventAnimDuration, C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
             }
 
             Void UpdateRanking() {
@@ -399,13 +424,41 @@ Void SetML() {
                     declare CMlLabel Label_Player_Rooms <=> (Frame.GetFirstChild("label-player-rooms") as CMlLabel);
                     declare CMlLabel Label_Player_Rooms_0 <=> (Frame.GetFirstChild("label-player-rooms-0") as CMlLabel);
 
-                    Label_Player_Name.Value = Net_EscapeGameSpacePirate_Teams[Key].player1login ^ " & " ^ Net_EscapeGameSpacePirate_Teams[Key].player2login;
-                    Label_Player_Rooms.Value = TL::ToText(Net_EscapeGameSpacePirate_Teams[Key].room_number);
-                    Label_Player_Rooms_0.Value = "0";
+                    if (Net_EscapeGameSpacePirate_Teams[Key].room_number == 7) {
+                        Label_Player_Rooms.Value = "G";
+                        Label_Player_Rooms_0.Value = "G"; 
+                    } 
+                    else {
+                        if (Net_EscapeGameSpacePirate_Teams[Key].player1login == "" && Net_EscapeGameSpacePirate_Teams[Key].player2login == "") break; //pour éviter d'affiche une team vide (y'a surement mieux)
+  
+                        Label_Player_Name.Value = Net_EscapeGameSpacePirate_Teams[Key].player1login ^ " & " ^ Net_EscapeGameSpacePirate_Teams[Key].player2login;
+                        Label_Player_Rooms.Value = TL::ToText(Net_EscapeGameSpacePirate_Teams[Key].room_number);
+                        Label_Player_Rooms_0.Value = "0";
+                    }
                 }
             }
 
-            Void UpdateTeamRooms(Integer _IndexRoom) {
+            Void UpdateTeamRooms(Integer _IndexRoom) { //pas opti
+                if (_IndexRoom == 7) {
+                    declare CMlQuad Quad_Room_Image <=> (Page.GetFirstChild("quad-room-6") as CMlQuad);
+                    AnimMgr.Flush(Quad_Room_Image);
+                    AnimMgr.Add(Quad_Room_Image, "<a pos=\""^Quad_Room_Image.RelativePosition_V3.X^" "^95.5^ "\" />",1000, CAnimManager::EAnimManagerEasing::QuadOut);
+
+                    Quad_Room_Image.ImageUrl = C_ImageURL_Room_Cleared;
+                    declare CMlLabel Label_Team_Rooms <=> (Page.GetFirstChild("label-current-cp") as CMlLabel);
+                    declare CMlLabel Label_Team_Rooms_0 <=> (Page.GetFirstChild("label-current-cp-0") as CMlLabel);
+                    Label_Team_Rooms.Value = "X";
+                    Label_Team_Rooms_0.Value = "X";
+                    return;
+                }
+                if (_IndexRoom == 2) { //on enleve les textes si il a passé une premiere room (c'est nul mais j'arrive pas à faire autrement pour l'instant)
+                    declare CMlLabel Label_Press <=> (Page.GetFirstChild("label-press") as CMlLabel);
+                    declare CMlLabel Label_Escape <=> (Page.GetFirstChild("label-escape") as CMlLabel);
+
+                    Label_Press.Visible = False;
+                    Label_Escape.Visible = False;
+                }
+                if (_IndexRoom > 7) return;
 
                 G_Sound_New_Room_Current_Team.Play();
 
@@ -448,6 +501,7 @@ Void SetML() {
                 declare Integer Last_UpdateTime;
 
                 UpdateRanking();
+                //mettre une petite anim qui fait un tuto pour les fleches + l'overlay en général + les indices si jamais on en met
 
                 while (True) {
                     yield;
@@ -457,11 +511,13 @@ Void SetML() {
                         declare netread Text Net_EscapeGame_Live_Displayer_Name_1 for Teams[0] = "";
                         declare netread Text Net_EscapeGame_Live_Displayer_Name_2 for Teams[0] = "";
 
+
                         if(Net_EscapeGame_Live_Displayer_CP != 1) { //if it's not the first cp
                             AnimEvent(Net_EscapeGame_Live_Displayer_Name_1, Net_EscapeGame_Live_Displayer_Name_2, Net_EscapeGame_Live_Displayer_CP);
 
-                            if (InputPlayer.Name == Net_EscapeGame_Live_Displayer_Name_1 || InputPlayer.Name == Net_EscapeGame_Live_Displayer_Name_2) //if player is in the team
+                            if (GUIPlayer != Null && (GUIPlayer.User.Name == Net_EscapeGame_Live_Displayer_Name_1 || GUIPlayer.User.Name == Net_EscapeGame_Live_Displayer_Name_2)) { //pas sur si ça suffit
                                 UpdateTeamRooms(Net_EscapeGame_Live_Displayer_CP);
+                            }
                         }
                         
                         UpdateRanking();
@@ -487,21 +543,28 @@ Void SetML() {
 
                         if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-arrow-display") {
                             declare CMlFrame Frame_Event <=> (Page.GetFirstChild("frame-ranking") as CMlFrame);
-                            declare CMlQuad Quad <=> (Frame_Event.GetFirstChild("quad-arrow-display") as CMlQuad);
+                            declare CMlFrame Frame_Event_Arrow <=> (Page.GetFirstChild("frame-arrow-display") as CMlFrame);
+                            declare CMlQuad Quad <=> (Frame_Event_Arrow.GetFirstChild("quad-arrow-display") as CMlQuad);
 
                             AnimMgr.Flush(Quad);
                             AnimMgr.Flush(Frame_Event);
                             if(Quad.RelativeRotation == 180.) {
-                                AnimMgr.Add(Quad, "<a pos=\"-63 -12.5\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
+                                Frame_Event.Visible = True;
+
+                                Quad.RelativePosition_V3.Y = 20.;
+
+                                AnimMgr.Add(Quad, "<a pos=\"-83 20\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
                                 AnimMgr.Add(Frame_Event, "<a pos=\"-33 30\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
 
                                 Quad.RelativeRotation = 0.;
                             }
 
                             else {
-                                AnimMgr.Add(Quad, "<a pos=\"-41.75 -24\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
-                                AnimMgr.Add(Frame_Event, "<a pos=\"-120 30\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
+                                Quad.RelativePosition_V3.Y = 10.;
 
+                                AnimMgr.Add(Frame_Event, "<a hidden=1 pos=\"-120 30\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
+                                AnimMgr.Add(Quad, "<a pos=\"-152 10\"/>",C_ShortAnimDuration, CAnimManager::EAnimManagerEasing::QuadOut);
+                                
                                 Quad.RelativeRotation = 180.;
                             }
 
@@ -521,5 +584,4 @@ Void SetML() {
     Layers::Create(C_Escape_Game, Manialink);
     Layers::SetType(C_Escape_Game, CUILayer::EUILayerType::Normal);
     Layers::Attach(C_Escape_Game);
-    //Layers::SetType(C_Escape_Game, CUILayer::EUILayerType::InGameMenu);
 }
