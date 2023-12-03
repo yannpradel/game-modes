@@ -17,7 +17,7 @@
 // Constants
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 #Const C_Escape_Game "EscapeGame.LiveRace"
-#Const C_EventAnimDuration 4000
+#Const C_EventAnimDuration 5000
 #Const C_ShortAnimDuration 250
 
 #Const C_Callback_Team "EscapeSpacePirate.Team"
@@ -162,6 +162,7 @@ declare netwrite Integer Net_EscapeGame_Live_Ranking_Update for Teams[0] = 0;
 declare netwrite Integer Net_EscapeGame_Live_Displayer_CP for Teams[0] = 0;
 
 Race::SetRespawnBehaviour(Race::C_RespawnBehaviour_NeverGiveUp);
+
 ***
 
 ***Match_StartRound***
@@ -189,8 +190,6 @@ XmlRpc::SendCallback(C_Callback_Team, [EscapeGameSpacePirate_CurrentTeam.tojson(
 
 ***Match_Yield***
 ***
-
-StateMgr::ForcePlayersStates([StateMgr::C_State_Waiting]);
 
 // Manage XmlRpc events
 foreach (Event in XmlRpc.PendingEvents) {
@@ -425,6 +424,8 @@ Void SetML() {
                     declare CMlLabel Label_Player_Rooms_0 <=> (Frame.GetFirstChild("label-player-rooms-0") as CMlLabel);
 
                     if (Net_EscapeGameSpacePirate_Teams[Key].room_number == 7) {
+                        Label_Player_Name.Value = Net1VznyypTWrzvnje2KeKD12USGUkQ6P1erD.player1login ^ " & " ^ Net1VznyypTWrzvnje2KeKD12USGUkQ6P1erD.player2login;
+                        
                         Label_Player_Rooms.Value = "G";
                         Label_Player_Rooms_0.Value = "G"; 
                     } 
