@@ -1,0 +1,239 @@
+/**
+* EscapeGame Rounds Script
+*/
+#Extends "Modes/TrackMania/TM_Rounds_Online.Script.txt"
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Settings
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+#Setting S_ScriptEnvironment "development"
+#Setting S_PointsLimit -1
+#Setting S_RoundsPerMap 5
+#Setting S_PointsRepartition "16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0"
+#Setting S_MapsPerMatch 6
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Constants
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+#Const C_ChacalouRound_Team "RandomRound.LiveRace"
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Extends
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+
+#Struct K_MapTeam {
+    Text Player1Login;
+    Text Player2Login;
+    Integer TeamScore;
+    Integer MapNumber;
+}
+
+
+***Match_StartServer***
+***
+log("StartServer");
+Race::SortScores(Race::C_Sort_TotalPoints);
+***
+
+***Match_AfterLoadHud***
+***
+Users_SetNbFakeUsers(11,0);
+
+SetML();
+***
+
+***Match_StartMatch***
+***
+log("StartMatch");
+
+***
+
+***Match_InitMap*** //before the loading screen
+***
+
+log("InitMap");
+foreach (Player in Players) {
+    log(Player.User.Login);
+}
+***
+
+***Match_StartMap*** //after the loading screen
+***
+declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
+MapTeams = [];
+
+log("StartMap");
+log(Players.count/2);
+for(I, 1, 6) {
+    //log(I);
+    declare Integer RandomIndexPlayer1 = ML::Rand(1, 6);
+    declare Integer RandomIndexPlayer2 = ML::Rand(1, 6);
+    //make an order to have each player in only one team :
+
+
+    MapTeams.add(K_MapTeam {
+        Player1Login = "",
+        Player2Login = "",
+        TeamScore = 0,
+        MapNumber = 0
+    });
+    //log("Team " ^ I ^ " " ^ Players[RandomIndexPlayer1].User.Login ^ " " ^ Players[RandomIndexPlayer2].User.Login);
+}
+
+
+foreach (Player in Players) {
+    //add each player to a random team
+    declare Integer RandomIndex = ML::Rand(0, MapTeams.count-1);
+    UIManager.UIAll.SendChat(TL::ToText(RandomIndex));
+
+    declare Boolean IsOnTeam = False;
+    while (!IsOnTeam) {
+        if(MapTeams[RandomIndex].Player1Login == "") {
+            MapTeams[RandomIndex].Player1Login = Player.User.Login;
+            IsOnTeam = True;
+        } else if (MapTeams[RandomIndex].Player2Login == "") {
+            MapTeams[RandomIndex].Player2Login = Player.User.Login;
+            IsOnTeam = True;
+        } else {
+            RandomIndex = ML::Rand(0, MapTeams.count-1);
+        }
+    }
+
+    log("Player " ^ Player.User.Login ^ " in team " ^ RandomIndex);
+}
+
+***
+
+***Match_InitRound***
+***
+log("InitRound");
+declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
+
+***
+
+***Match_StartRound*** //mettre tout ça dans init map 
+***
+
+log("StartRound");
+Users_SetNbFakeUsers(11,0);
+
+//log all teams
+foreach (Team in MapTeams) {
+    log("Team " ^ Team.Player1Login ^ " " ^ Team.Player2Login);
+}
+
+declare Text[Text] CustomNames = [];
+declare Text[] Display;
+foreach(Score in Scores) {
+    declare Text CustomName;
+    declare Text PlayerName = "$<"^Score.User.Name^"$>";
+
+    foreach (Key => Team in MapTeams) {
+        if(Team.Player1Login == Score.User.Login) {
+            CustomName = "["^Key^"$g] "^PlayerName;
+            break;
+        } else if (Team.Player2Login == Score.User.Login) {
+            CustomName = "["^Key^"$g] "^PlayerName;
+            break;
+        }
+    }
+        
+
+    CustomNames[Score.User.WebServicesUserId] = CustomName;
+}
+UIModules_ScoresTable::DisplayOnly(Display);
+UIModules_ScoresTable::SetCustomNames(CustomNames);
+***
+
+
+
+***Match_EndRound***
+***
+log("EndRound");
+declare Text[][Text] CustomPoints = [];
+foreach (Score in Scores) {
+    foreach (Key => Team in MapTeams) {
+        if(Team.Player1Login == Score.User.Login) {
+            MapTeams[Key].TeamScore += Score.Points;
+            log("player 1 " ^ Score.Points);
+
+        } else if (Team.Player2Login == Score.User.Login) {
+            MapTeams[Key].TeamScore += Score.Points;
+            log("player 2 " ^ Score.Points);
+        }
+    }
+}
+
+foreach (Score in Scores) {
+    CustomPoints[Score.User.WebServicesUserId] = [];
+    foreach (Key => Team in MapTeams) {
+        if(Team.Player1Login == Score.User.Login) {
+            CustomPoints[Score.User.WebServicesUserId].add(""^MapTeams[Key].TeamScore);
+            Score.Points = MapTeams[Key].TeamScore;
+
+        } else if (Team.Player2Login == Score.User.Login) {
+            CustomPoints[Score.User.WebServicesUserId].add(""^MapTeams[Key].TeamScore);
+            Score.Points = MapTeams[Key].TeamScore;
+        }
+    }
+}
+
+foreach (Team in MapTeams) {
+    log("Team " ^ Team.Player1Login ^ " " ^ Team.Player2Login ^ " " ^ Team.TeamScore);
+}
+
+UIModules_ScoresTable::SetCustomPoints(CustomPoints);
+Race::SortScores(Race::C_Sort_TotalPoints);
+MB_Sleep(5000);
+
+
+***
+
+
+
+Void SetML() {
+
+    declare Text Manialink = """
+        <manialink version="3" name="{{{C_ChacalouRound_Team}}}">
+        <stylesheet>
+            <style class="center" halign="center" valign="center" textcolor="ffffffff" />
+        </stylesheet>
+        <frame id="frame-global" pos="0 0" hidden="1">
+        </frame>
+        <script><!--
+
+            #Include "TextLib" as TL
+            #Include "MathLib" as ML
+
+            #Const C_AttachId {{{dump(C_ChacalouRound_Team)}}}
+            
+           
+
+            main() {
+                log("Init " ^ C_AttachId);
+
+
+                wait (InputPlayer != Null);
+
+                declare CMlFrame Frame_Global = (Page.GetFirstChild("frame-global") as CMlFrame);
+                Frame_Global.Visible = True;
+
+
+                while (True) {
+                    yield;
+
+                    
+                }
+            }
+        --></script>
+    </manialink>
+    """;
+
+    Layers::Create(C_ChacalouRound_Team, Manialink);
+    Layers::SetType(C_ChacalouRound_Team, CUILayer::EUILayerType::Normal);
+    Layers::Attach(C_ChacalouRound_Team);
+}
+
+

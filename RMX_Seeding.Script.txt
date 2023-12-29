@@ -1,0 +1,639 @@
+//#RequireContext CSmMode
+#Extends "Modes/Nadeo/Trackmania/Base/TrackmaniaBase.Script.txt"
+
+#Const	CompatibleMapTypes	"TrackMania\\TM_Race,TM_Race"
+#Const	Version							"2023-02-03"
+#Const	ScriptName					"Modes/rmxseeding/RMX_Seeding.Script.txt"
+
+#Include "MathLib" as ML
+#Include "TextLib" as TL
+#Include "Libs/Nadeo/Trackmania/MainMenu/Constants.Script.txt" as MenuConsts
+#Include "Libs/Nadeo/CMGame/Utils/Tools.Script.txt" as Tools
+#Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/TimeGap_Server.Script.txt" as UIModules_TimeGap
+#Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/Checkpoint_Server.Script.txt" as UIModules_Checkpoint
+#Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/PauseMenuOnline_Server.Script.txt" as UIModules_PauseMenu_Online
+#Include "Libs/Nadeo/Trackmania/Modes/TimeAttack/StateManager.Script.txt" as StateMgr
+
+
+#Include "Modes/Libs/RMXTeams.Script.txt" as RMXTeams
+#Include "Modes/Libs/RMXMarkers.Script.txt" as RMXMarkers
+
+#Setting S_FinishTimeout 30 as _("Finish timeout")
+#Setting S_RoundsPerMap 1 as _("Number of rounds per track")
+#Setting S_MapsPerMatch 1 as _("Number of tracks per match")
+
+#Setting S_WarmUpNb 1	as _("Number of warm up")
+//#Setting S_ScriptEnvironment "development"
+#Setting S_ScriptEnvironment "production"
+
+#Const C_ModeName "RXM Seeding"
+#Const C_Callback_Teams_Serv1 "RMX_QualificationResultServer1"
+#Const C_Callback_Teams_Serv2 "RMX_QualificationResultServer2"
+
+#Const C_ManiaAppUrl "file://Media/ManiaApps/Nadeo/Trackmania/Modes/Rounds.Script.txt" //< Url of the mania app
+
+#Const C_UploadRecord True
+#Const C_DisplayRecordGhost False
+#Const C_DisplayRecordMedal False
+#Const C_CelebrateRecordGhost False
+#Const C_CelebrateRecordMedal False
+#Const C_DisplayWorldTop False
+
+declare Boolean G_MatchStarted;
+
+***Match_LoadLibraries***
+***
+XmlRpc::RegisterCallback(C_Callback_Teams_Serv1, """
+* Name: {{{C_Callback_Teams_Serv1}}}
+* Type: CallbackArray
+* Description: Callback at the end of RXM Seeding match which send the result of the qualification to the server 1.
+* Data:
+	- Version >=2.0.0:
+	```
+	[
+        {
+            "Player1Login": player1Login,
+            "Player2Login": player2Login,
+            "CPPlayer1": cpPlayer1,
+            "CPPlayer2": cpPlayer2,
+            "RoomNumber": roomNumber
+        }
+	]
+	```
+""");
+
+XmlRpc::RegisterCallback(C_Callback_Teams_Serv2, """
+* Name: {{{C_Callback_Teams_Serv2}}}
+* Type: CallbackArray
+* Description: Callback at the end of RXM Seeding match which send the result of the qualification to the server 1.
+* Data:
+	- Version >=2.0.0:
+	```
+	[
+        {
+            "Player1Login": player1Login,
+            "Player2Login": player2Login,
+            "CPPlayer1": cpPlayer1,
+            "CPPlayer2": cpPlayer2,
+            "RoomNumber": roomNumber
+        }
+	]
+	```
+""");
+RMXMarkers::Load();
+***
+
+***Match_UnloadLibraries***
+***
+XmlRpc::UnregisterCallback(C_Callback_Teams_Serv1);
+XmlRpc::UnregisterCallback(C_Callback_Teams_Serv2);
+
+
+***
+
+***Match_LogVersions***
+***
+Log::RegisterScript(ScriptName, Version);
+***
+
+***Match_Rules***
+***
+ModeInfo::SetName(C_ModeName);
+ModeInfo::SetType(ModeInfo::C_Type_MultiTeams);
+ModeInfo::SetRules("");
+ModeInfo::SetStatusMessage("");
+***
+
+***Match_AfterLoadHud***
+***
+log("Start AfterLoadHUD");
+ClientManiaAppUrl = C_ManiaAppUrl;
+UIModules_Checkpoint::SetVisibilityTimeDiff(False);
+UIModules_TimeGap::SetTimeGapMode(UIModules_TimeGap::C_TimeGapMode_CurRace);
+UIModules_Checkpoint::SetRankMode(UIModules_Checkpoint::C_RankMode_CurrentRace);
+UIModules_PauseMenu_Online::SetHelp("");
+// Hide SM Overlay
+UIManager.UIAll.OverlayHideSpectatorControllers = True;
+UIManager.UIAll.OverlayHideSpectatorInfos = True;
+UIManager.UIAll.OverlayHideChrono = True; 
+UIManager.UIAll.OverlayHideCountdown = True;
+//hide default markers
+UIManager.UIAll.AlliesLabelsVisibility = CUIConfig::ELabelsVisibility::Never;
+UIManager.UIAll.AlliesLabelsShowNames = CUIConfig::EVisibility::ForcedHidden;
+
+UIManager.UIAll.TeamLabelsVisibility = CUIConfig::ELabelsVisibility::Never;
+UIManager.UIAll.TeamLabelsShowNames = CUIConfig::EVisibility::ForcedHidden;
+
+UIManager.UIAll.OpposingTeamLabelsVisibility = CUIConfig::ELabelsVisibility::Never;
+UIManager.UIAll.OpposingTeamLabelsShowNames = CUIConfig::EVisibility::ForcedHidden;
+UIManager.UIAll.LabelsVisibility_SkipMarkersOnly = True;
+// UIManager.UIAll.LabelsVisibility = CUIConfig::EHudVisibility::MarkersOnly;
+Markers::EnablePlayersMarkers(True);
+Markers::SetDefaultMarker_Box(<0.,0.,0.>);
+RMXMarkers::Markers();
+***
+
+***Match_InitServer***
+***
+
+log("init Server");
+
+***
+
+***Match_StartServer***
+***
+log("Start Server");
+Clans::SetClansNb(0);
+CrudeExtrapolation_AllowDelay = False;
+Race::SetRespawnBehaviour(Race::C_RespawnBehaviour_NeverGiveUp);
+WarmUp::SetAvailability(True);
+Scores::SaveInScore(Scores::C_Points_Match);
+Race::SortScores(Race::C_Sort_TotalPoints);
+//Race::EnableIntroDuringMatch(True);
+Race::SetupRecord(
+	MenuConsts::C_ScopeType_Season,
+	MenuConsts::C_ScopeType_PersonalBest,
+	MenuConsts::C_GameMode_Rounds,
+	"",
+	C_UploadRecord,
+	C_DisplayRecordGhost,
+	C_DisplayRecordMedal,
+	C_CelebrateRecordGhost,
+	C_CelebrateRecordMedal,
+	C_DisplayWorldTop
+);
+GiveUpBehaviour_RespawnAfter = True;
+CarRank::Reset();
+***
+
+
+***Match_StartMatch***
+***
+log("Start Match");
+
+RMXTeams::Clear();
+G_MatchStarted = False;
+foreach(Score in Scores){
+	ServerAdmin.ForceSpectator(Score.User,CServerAdmin::ESpecMode::PlayerSelectable);
+}
+
+log("------------------------------");
+log(Map::GetStart());
+foreach (Player in Players) {
+  log(Race::GetPlayerDefaultStart(Player));
+}
+
+//StateMgr::ForcePlayersStates([StateMgr::C_State_Playing]);
+//CarRank::Update(CarRank::C_SortCriteria_BestRace);
+//Race::EnableIntroDuringMatch(True);
+***
+
+
+***Match_StartMap***
+***
+log("Start MapAHAHAHAHAHAH");
+StartTime = Now + Race::C_SpawnDuration;
+//Do warmup until config is loaded
+if(!G_MatchStarted){
+	UIModules_ScoresTable::SetScoreMode(UIModules_ScoresTable::C_Mode_BestTime);
+	WarmUp::SetStartRoundMessage(_("Waiting for players"));
+	UIModules_ScoresTable::SetFooterInfo(_("Waiting for players"));
+	
+	Scores_ClearAll();
+	MB_WarmUp(1,60*60*1000,-1);
+
+	//skip and start match
+	G_MatchStarted = True;
+	Race::EnableIntroDuringMatch(False);
+	
+	//sort scoreboard with default team config in order of registration
+	SetScoreboardDisplay();
+	SortScoreboard();
+	MB_SetValidMap(False);
+	MB_SetValidRound(False);
+	MB_StopMap();
+
+	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::ForcedVisible;
+	MB_Sleep(S_ChatTime*800);
+	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::Manual;
+	MB_Sleep(S_ChatTime*200);
+
+	if (S_ScriptEnvironment == "development") {
+		log("CreateFakeTeams");
+		RMXTeams::CreateFake();
+		EndTime = Now + 1000;
+	} else {
+		RMXTeams::LoadTeams();
+	}
+	
+	if (S_ScriptEnvironment != "development") {
+		if(RMXTeams::LoadTeamsUpdate()){
+			EndTime = Now + 1000;
+		}
+	}
+}
+//else do real warm-up
+else{
+	SetScoreboardDisplay();
+	//yeet to spectator non registered players
+	foreach(Score in Scores) {
+		if(!RMXTeams::IsRegistered(Score.User)){
+			ServerAdmin.ForceSpectator(Score.User,CServerAdmin::ESpecMode::SpectatorForced);
+		}
+	}
+	WarmUp::SetStartRoundMessage(_("Warmup: %1/%2"));
+	UpdateScoresTableFooter(True);
+	MB_WarmUp(S_WarmUpNb, Map.TMObjective_AuthorTime * 2, -1);
+}
+
+
+***
+
+***Match_StartWarmUpRound***
+***
+log("Start WarmUpRound");
+
+***
+
+***Match_WarmUpLoop***
+***
+declare RacePendingEvents = Race::GetPendingEvents();
+foreach (Event in RacePendingEvents) {
+	if (Event.Player != Null) {
+		switch(Event.Type){
+			case Events::C_Type_StartLine:{
+				if (S_ScriptEnvironment == "development") {
+					Event.Player.TrustClientSimu = False;
+					//SetPlayerVehicle_ControlledByMode(Event.Player, True);
+					//SetPlayerVehicle_Accelerate(Event.Player, True);
+					//SetPlayerVehicle_TargetSpeedValue(Event.Player, ML::Rand(230.,250.));
+				}
+			}
+
+			case Events::C_Type_Waypoint:{
+				if (Event.IsEndRace) {
+					log("end warmup");
+					Scores::UpdatePlayerBestRaceIfBetter(Event.Player);
+					Scores::UpdatePlayerPrevRace(Event.Player);
+				}
+			}
+		}
+	}
+}
+
+***
+
+***Match_StartRound***
+***
+log("Match_StartRound");
+UpdateScoresTableFooter(False);
+Race::StopSkipOutroAll();
+ResetTeamScoreToScoreboard();
+Scores::Clear(Scores::C_Level_Round);
+UIModules_ScoresTable::SetScoreMode(UIModules_ScoresTable::C_Mode_PrevTime);
+SortScoreboard();
+RMXTeams::PrepareRound();
+//Start race for 1st player of each team
+StartTime = Now + Race::C_SpawnDuration;
+EndTime = -1;
+log(RMXTeams::Get());
+//yeet to spectator non registered players
+foreach(Score in Scores) {
+	if(!RMXTeams::IsRegistered(Score.User)){
+		log("Spectator non registered player: " ^ Score.User.Name);
+		ServerAdmin.ForceSpectator(Score.User,CServerAdmin::ESpecMode::SpectatorForced);
+	}
+}
+foreach(Team in RMXTeams::Get()){
+	StartTeamPlayer(Team,0,StartTime);
+}
+declare FirstFinish = True;
+***
+
+***Match_PlayLoop***
+***
+declare RacePendingEvents = Race::GetPendingEvents();
+foreach (Event in RacePendingEvents) {
+	if (Event.Player != Null) {
+		switch(Event.Type){
+			case Events::C_Type_StartLine:{
+				if (S_ScriptEnvironment == "development"){
+					Event.Player.TrustClientSimu = False;
+					//SetPlayerVehicle_ControlledByMode(Event.Player, True);
+					//SetPlayerVehicle_Accelerate(Event.Player, True);
+					//SetPlayerVehicle_TargetSpeedValue(Event.Player, ML::Rand(230.,250.));
+				}
+			}
+			case Events::C_Type_Waypoint:{
+				if (Event.IsEndRace) {
+					if(RMXTeams::IsRegistered(Event.Player.User)){
+						Scores::UpdatePlayerPrevRace(Event.Player);
+						declare Team = RMXTeams::Get(Event.Player.User);
+						declare PlayerIndex = RMXTeams::GetIndex(Event.Player.User);
+						declare TeamTime = RMXTeams::SetFinishedAndAddTime(Event.Player.User);
+						if(RMXTeams::IsLastPlayer(Event.Player.User)){
+							Race::StopSkipScoresTable(Event.Player);
+							// Start the countdown if it's the first player to finish
+							if (EndTime <= 0) {
+								EndTime = Now + S_FinishTimeout * 1000;
+							}
+						}else{
+							Race::StopSkipOutro(Event.Player);
+							StartTeamPlayer(Team,PlayerIndex+1,StartTime + TeamTime + (Race::C_SpawnDuration*(PlayerIndex+1)));
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// End the round 
+// If All players finished
+if (Players.count > 0 && PlayersNbAlive <= 0) {
+	MB_StopRound();
+}
+// If time limit is reached
+if (EndTime > 0 && Now >= EndTime) {
+	MB_StopRound();
+}
+***
+
+***Match_EndRound***
+***
+log("Match_EndRound");
+
+if(MB_Private_SectionValid_Round){
+
+	//TODO: proper aborted round management
+	if(MB_GetValidRoundCount() == S_RoundsPerMap){
+		MB_StopMap();
+	}
+	
+	EndTime = -1;
+	Race::StopSkipOutroAll();
+	SetTeamScoreToScoreboard();
+	UIModules_ScoresTable::DisplayRoundPoints(True);
+	UIModules_ScoresTable::SetScoreMode(UIModules_ScoresTable::C_Mode_Points);
+	
+	//compute teams points
+	//		  Time   [TeamIndex][NbFinish]
+	declare Integer[Integer][Integer] LUT;
+	foreach(I => Team in RMXTeams::Get()){
+		declare NbFinish = RMXTeams::GetTeamNbFinish(Team);
+		
+		if(!LUT.existskey(NbFinish)) LUT[NbFinish] = [];
+		LUT[NbFinish][I] = Team.Time;
+	
+	}
+	LUT = LUT.sortkeyreverse();
+	foreach(I => JSP in LUT){
+		LUT[I] = LUT[I].sort();
+	}
+	declare Integer I = 1;
+	foreach(TeamsWithNFinish in LUT){
+		foreach(TeamIndex => Time in TeamsWithNFinish){
+			declare Team = RMXTeams::Get(TeamIndex);
+			RMXTeams::AddTeamPoints(TeamIndex,I);
+			foreach(Player in Team.Players){
+				declare Score <=> RMXTeams::GetScore(Player.Login);
+				if(Score != Null){
+					Scores::AddPlayerRoundPoints(Score,I);
+				}
+			}
+			I += 1;
+		}
+	}
+	
+	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::ForcedVisible;
+	MB_Sleep(S_ChatTime*800);
+	Scores::EndRound();
+	SetTeamScoreToScoreboard();
+	SortScoreboard();
+	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::Manual;
+	MB_Sleep(S_ChatTime*200);
+}else{
+	MB_Private_SectionValid_Turn = True;
+}
+***
+
+***Match_EndMap***
+***
+log("Match_EndMap");
+
+if(MB_Private_SectionValid_Map){
+
+	if(MB_GetValidMapCount() == S_MapsPerMatch){
+		MB_StopMatch();
+	}
+	
+	if (MB_MatchIsRunning()){
+		MB_SkipPodiumSequence();
+	}else{
+		//sort teams by point
+		//		  Points [teamIndex]
+		declare Integer[Integer] LUT = [];
+		for (I, 0, 12) {
+			LUT[I] = -1;
+		}
+		foreach(I => Team in RMXTeams::Get()){
+			LUT[I] = Team.Score;
+		}
+		LUT = LUT.sort();
+		//			teamindex
+		declare Integer[] LUT2 = [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1];
+		declare Integer I;
+		foreach(TeamIndex => Score in LUT){
+			if(I < LUT2.count){
+				LUT2[I] = TeamIndex;
+			}else{
+				LUT2.add(TeamIndex);
+			}
+			I += 1;
+		}
+
+		declare RMXTeams::K_Team[] Serv1 = [RMXTeams::GetOrEmpty(LUT2[0]),RMXTeams::GetOrEmpty(LUT2[3]),RMXTeams::GetOrEmpty(LUT2[4]),RMXTeams::GetOrEmpty(LUT2[7]),RMXTeams::GetOrEmpty(LUT2[8]),RMXTeams::GetOrEmpty(LUT2[11])];
+		declare RMXTeams::K_Team[] Serv2 = [RMXTeams::GetOrEmpty(LUT2[1]),RMXTeams::GetOrEmpty(LUT2[2]),RMXTeams::GetOrEmpty(LUT2[5]),RMXTeams::GetOrEmpty(LUT2[6]),RMXTeams::GetOrEmpty(LUT2[9]),RMXTeams::GetOrEmpty(LUT2[10])];
+
+		log("!!RMX_QualificationResultServer1 :"^Serv1.tojson());
+		log("!!RMX_QualificationResultServer2 :"^Serv2.tojson());
+		XmlRpc::SendCallback(C_Callback_Teams_Serv1,Serv1.tojson());
+		XmlRpc::SendCallback(C_Callback_Teams_Serv2,Serv2.tojson());
+
+	}
+
+	SortScoreboard();
+	Race::SortScores(Race::C_Sort_TotalPoints);
+	Scores::SetPlayerWinner(Scores[0]);
+}else{
+	MB_SkipPodiumSequence();
+	MB_Private_SectionValid_Round = True;
+	MB_Private_SectionValid_Turn = True;
+}
+***
+
+***Match_BeforePodiumSequence***
+***
+if(!MB_Private_SkipPodiumSequence){
+	ModeUtils::PlaySound(CUIConfig::EUISound::EndRound, 0);
+	
+	declare CSmScore WinnerScore <=> Scores::GetPlayerWinner();
+	if (WinnerScore == Null) {
+		UIModules_BigMessage::SetMessage(_("|Match|Draw"));
+	} else {
+		declare Team = RMXTeams::Get(WinnerScore.User);
+		UIModules_BigMessage::SetMessage(TL::Compose(RMXTeams::Tag(Team)^_("$<%1$> wins the match!")),WinnerScore.User.WebServicesUserId);
+	}
+}
+***
+
+***Match_AfterPodiumSequence***
+***
+UIModules_BigMessage::SetMessage("");
+***
+
+***Match_EndMatch***
+***
+log("Match_EndMatch");
+if(MB_Private_SectionValid_Match){
+
+}else{
+	MB_Private_SectionValid_Match = True;
+	MB_Private_SectionValid_Round = True;
+	MB_Private_SectionValid_Turn = True;
+}
+***
+
+Void UpdateScoresTableFooter(Boolean _IsWarmUp){
+	declare Text[] Parts;
+	declare Text Message = "";
+	if(_IsWarmUp){
+		declare netwrite Integer Net_LibRaceWarmUp_WarmUpDuration for Teams[0] = 0;
+		Message ^= """$F92%{{{Parts.count + 1}}}{{{Net_LibRaceWarmUp_WarmUpDuration}}}/{{{S_WarmUpNb}}}""";
+		//L16N [Rounds] Number of rounds played during the track.
+		Parts.add(_("WarmUp")^" : ");
+
+	}else if (S_RoundsPerMap > 0) {
+		if (Parts.count > 0) Message ^= "\n";
+		Message ^= """%{{{Parts.count + 1}}}{{{MB_Private_GetValidRoundCount()}}}/{{{S_RoundsPerMap}}}""";
+		//L16N [Rounds] Number of rounds played during the track.
+		Parts.add(_("Rounds : "));
+	}
+	
+	if (S_MapsPerMatch > 0) {
+		if (Parts.count > 0) Message ^= "\n";
+		Message ^= """%{{{Parts.count + 1}}}{{{MB_Private_GetValidMapCount()}}}/{{{S_MapsPerMatch}}}""";
+		//L16N [Rounds] Number of tracks played during the match.
+		Parts.add(_("Tracks : "));
+	}
+	
+	switch (Parts.count) {
+		case 0: UIModules_ScoresTable::SetFooterInfo(Message);
+		case 1: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0]));
+		case 2: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0], Parts[1]));
+		case 3: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0], Parts[1], Parts[2]));
+	}
+}
+
+Void StartTeamPlayer(RMXTeams::K_Team _Team,Integer _PlayerIndex,Integer _StartTime){
+
+	if( _PlayerIndex < 0 || _PlayerIndex >= _Team.Players.count) return;
+	declare Player = GetPlayer(_Team.Players[_PlayerIndex].Login);
+	if(Player != Null){
+
+		Race::Start(Player,_StartTime);
+		//set other players to spectate starting player
+		foreach(Index => __ in _Team.Players){
+			if(Index == _PlayerIndex) continue;
+			declare Spectator = GetPlayer(_Team.Players[Index].Login);
+			if(Spectator != Null){
+				
+				declare UI <=>  UIManager.GetUI(Spectator);
+				if(UI != Null){
+					UI.Spectator_SetAutoTarget_User(Player.User);
+				}
+			}
+		}
+	}
+}
+
+Void SetScoreboardDisplay(){
+	declare Text[Text] CustomNames = [];
+	declare Text[] Display;
+	foreach(Score in Scores) {
+		declare Text CustomName;
+
+		declare Text PlayerName = "$<"^Score.User.Name^"$>";
+
+		if(RMXTeams::IsRegistered(Score.User)){
+			Display.add(Score.User.WebServicesUserId);
+			declare Team = RMXTeams::Get(Score.User);
+			if(Team.Players.count == 0){
+				CustomName = PlayerName;
+			}else{
+				CustomName = RMXTeams::Tag(Team)^" "^PlayerName;
+			}
+		}else{
+			CustomName = PlayerName;
+		}
+		CustomNames[Score.User.WebServicesUserId] = CustomName;
+	}
+	UIModules_ScoresTable::DisplayOnly(Display);
+	UIModules_ScoresTable::SetCustomNames(CustomNames);
+}
+
+Void SortScoreboard(){
+	Scores_ClearAll();
+	//		  Score   [TeamIndex]
+	declare Integer[Integer] LUT;
+	foreach(I => Team in RMXTeams::Get()){
+		LUT[I] = Team.Score;
+	}
+	LUT = LUT.sort();
+	declare TeamNb =  RMXTeams::Get().count;
+	declare Integer I;
+	foreach(TeamIndex => Score in LUT){
+		declare Team = RMXTeams::Get(TeamIndex);
+		foreach(J => Player in Team.Players){
+			declare Score <=> RMXTeams::GetScore(Player.Login);
+			if(Score != Null){
+				Score.Points = (TeamNb-I)*10+(2-J);
+			}
+		}
+		I +=1;
+	}
+}
+
+Void SetTeamScoreToScoreboard(){
+	declare Integer[Integer] LUT;
+	foreach(I => Team in RMXTeams::Get()){
+		LUT[I] = Team.Score;
+	}
+	LUT = LUT.sort();
+
+	declare Text[][Text] CustomPoints;
+	declare Integer I;
+	foreach(TeamIndex => Score in LUT){
+		declare Team = RMXTeams::Get(TeamIndex);
+		foreach(J => Player in Team.Players){
+			declare Score <=> RMXTeams::GetScore(Player.Login);
+			if(Score != Null){
+				CustomPoints[Score.User.WebServicesUserId] = [];
+				CustomPoints[Score.User.WebServicesUserId].add(""^Team.Score);
+				if(I < 10){
+					CustomPoints[Score.User.WebServicesUserId].add("FFF");
+				}else if(I < 12){
+					CustomPoints[Score.User.WebServicesUserId].add("F80");
+				}else{
+					CustomPoints[Score.User.WebServicesUserId].add("F00");
+				}
+			}
+		}
+		I +=1;
+	}
+	UIModules_ScoresTable::SetCustomPoints(CustomPoints);
+}
+
+Void ResetTeamScoreToScoreboard(){
+	UIModules_ScoresTable::SetCustomPoints([]);
+}
