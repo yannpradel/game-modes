@@ -592,10 +592,12 @@ Void SetML() {
 				declare CMlLabel Player2 = (Frame_Global.GetFirstChild("player2") as CMlLabel);
 				declare CMlLabel Player3 = (Frame_Global.GetFirstChild("player3") as CMlLabel);
 				declare CMlLabel TeamName = (Frame_Global.GetFirstChild("label-team") as CMlLabel);
+				
 
 				if(Player1.Visible == False) {
 					Player1.Visible = True;
 					Player2.Visible = True;
+					TeamName.Visible = True;
 				}
 
 				Player3.Visible = False;
