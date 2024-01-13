@@ -1,23 +1,63 @@
 /**
 * EscapeGame Rounds Script
 */
-#Extends "Modes/TrackMania/TM_Rounds_Online.Script.txt"
+#Extends "Modes/Nadeo/Trackmania/Base/TrackmaniaRoundsBase.Script.txt"
+
+#Const	CompatibleMapTypes	"TrackMania\\TM_Race,TM_Race"
+#Const	Version							"1.0.1+2023-09-01"
+#Const	ScriptName					"Modes/TrackMania/TM_Rounds_Online.Script.txt"
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Libraries
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+#Include "TextLib" as TL
+#Include "MathLib" as ML
+#Include "Libs/Nadeo/CMGame/Utils/Semver.Script.txt" as Semver
+#Include "Libs/Nadeo/Trackmania/MainMenu/Constants.Script.txt" as MenuConsts
+#Include "Libs/Nadeo/Trackmania/Modes/Rounds/StateManager.Script.txt" as StateMgr
+#Include "Libs/Nadeo/TMGame/Utils/Tracking.Script.txt" as Tracking
+#Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/Checkpoint_Server.Script.txt" as UIModules_Checkpoint
+#Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/PauseMenuOnline_Server.Script.txt" as UIModules_PauseMenu_Online
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Settings
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
-#Setting S_ScriptEnvironment "development"
+#Setting S_ScriptEnvironment "production"
+#Setting S_FinishTimeout 20 as _("Finish timeout")
 #Setting S_PointsLimit -1
 #Setting S_RoundsPerMap 5
-#Setting S_PointsRepartition "16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0"
-#Setting S_MapsPerMatch 6
-
+#Setting S_PointsRepartition "3,2,1,0"
+#Setting S_MapsPerMatch 8
+#Setting S_UseTieBreak True as _("Use tie-break")	///< Continue to play the map until the tie is broken
+#Setting S_WarmUpNb 4 as _("Number of warm up")
+#Setting S_WarmUpDuration 1 as _("Duration of one warm up")	
+#Setting S_WarmUpTimeout -1 as _("Warm up timeout")
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Constants
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
-#Const C_ChacalouRound_Team "RandomRound.LiveRace"
+#Const C_ModeName "Rounds"
+//L16N [Rounds] Description of the mode rules
+#Const Description _("$zIn $<$t$6F9Rounds$z$z$> mode, the goal is to win a maximum number of $<$t$6F9points.\n\n$z$>The rounds mode consists of $<$t$6F9a series of races$z$>.\nWhen you finish a race in a good $<$t$6F9position$z$>, you get $<$t$6F9points$z$>, added to your total.\n\nThe $<$t$6F9winner$z$> is the first player whose total reaches the $<$t$6F9point limit$z$> (30 for example).")
 
+#Const C_HudModulePath "" //< Path to the hud module
+#Const C_ManiaAppUrl "file://Media/ManiaApps/Nadeo/Trackmania/Modes/Rounds.Script.txt" //< Url of the mania app
+#Const C_FakeUsersNb 0
+
+#Const C_PointsLimit_NotReached 0
+#Const C_PointsLimit_Reached 1
+#Const C_PointsLimit_Tie 2
+
+#Const C_UploadRecord True
+#Const C_DisplayRecordGhost False
+#Const C_DisplayRecordMedal False
+#Const C_CelebrateRecordGhost True
+#Const C_CelebrateRecordMedal True
+
+//----------Fontur States----------//
+#Const C_ChacalouRound_Team "RandomRound.LiveRace"
+#Const C_Color_Array [
+	"F00","0F0","00F","FF0","F0F","0FF","800","080","008","F80","F08","0F8","8F0","08F","80F","88F","8FF","F88","FF8","F8F","8F8","888","4F4","F4F","44F","F44","4FF","F4F","4F4","44F","444","FAA","AFA","AAF","AFF","FAF","AFA","AAF","AAA","DAD","ADA","AAD","BEB","EBE","BEB","EBE","CDC","DCD"
+]
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Extends
@@ -26,20 +66,95 @@
 #Struct K_MapTeam {
     Text Player1Login;
     Text Player2Login;
+	Text LastPlayerLogin;
+	Integer Player1Score;
+	Integer Player2Score;
+	Integer LastPlayerScore;
+	Integer Player1CumulatedScore;
+	Integer Player2CumulatedScore;
+	Integer LastPlayerCumulatedScore;
     Integer TeamScore;
-    Integer MapNumber;
+	Integer CumulateTeamScore;
+    Text TeamColor;
+	Integer TeamNumber;
 }
 
+
+***Match_LogVersions***
+***
+Log::RegisterScript(ScriptName, Version);
+Log::RegisterScript(Semver::ScriptName, Semver::Version);
+Log::RegisterScript(ModeUtils::ScriptName, ModeUtils::Version);
+Log::RegisterScript(StateMgr::ScriptName, StateMgr::Version);
+***
+
+***Match_LoadLibraries***
+***
+StateMgr::Load();
+***
+
+***Match_UnloadLibraries***
+***
+StateMgr::Unload();
+***
+
+***Match_Settings***
+***
+MB_Settings_UseDefaultHud = (C_HudModulePath == "");
+***
+
+***Match_Rules***
+***
+ModeInfo::SetName(C_ModeName);
+ModeInfo::SetType(ModeInfo::C_Type_FreeForAll);
+ModeInfo::SetRules(Description);
+ModeInfo::SetStatusMessage("");
+***
+
+***Match_LoadHud***
+***
+if (C_HudModulePath != "") Hud_Load(C_HudModulePath);
+***
 
 ***Match_StartServer***
 ***
 log("StartServer");
-Race::SortScores(Race::C_Sort_TotalPoints);
+// Initialize mode
+Clans::SetClansNb(0);
+Scores::SaveInScore(Scores::C_Points_Match);
+StateMgr::ForcePlayersStates([StateMgr::C_State_Waiting]);
+WarmUp::SetAvailability(True);
+Race::SetupRecord(
+	MenuConsts::C_ScopeType_Season,
+	MenuConsts::C_ScopeType_PersonalBest,
+	MenuConsts::C_GameMode_Rounds,
+	"",
+	C_UploadRecord,
+	C_DisplayRecordGhost,
+	C_DisplayRecordMedal,
+	C_CelebrateRecordGhost,
+	C_CelebrateRecordMedal
+);
+
+Server_PointsLimit = S_PointsLimit - 1;
+Server_RoundsPerMap = S_RoundsPerMap - 1;
+Server_MapsPerMatch = S_MapsPerMatch - 1;
 ***
 
 ***Match_AfterLoadHud***
 ***
-Users_SetNbFakeUsers(11,0);
+ClientManiaAppUrl = C_ManiaAppUrl;
+Race::SortScores(Race::C_Sort_TotalPoints);
+UIModules_ScoresTable::SetScoreMode(UIModules_ScoresTable::C_Mode_Points);
+UIModules_Checkpoint::SetVisibilityTimeDiff(False);
+UIModules_Checkpoint::SetRankMode(UIModules_Checkpoint::C_RankMode_CurrentRace);
+UIModules_PauseMenu_Online::SetHelp(Description);
+UIModules_Sign16x9Small::SetScoreMode(UIModules_Sign16x9Small::C_ScoreMode_Points);
+// Hide SM Overlay
+UIManager.UIAll.OverlayHideSpectatorInfos = True;
+UIManager.UIAll.OverlayHideCountdown = True;
+if (S_ScriptEnvironment == "development") Users_SetNbFakeUsers(30,0);
+UIManager.UIAll.PlayerDisableFreeCam = True;
 
 SetML();
 ***
@@ -48,159 +163,416 @@ SetML();
 ***
 log("StartMatch");
 
+declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
+declare netwrite K_MapTeam[] CurrentMapTeam for Teams[0] = [];
+MapTeams = [];
+CurrentMapTeam = [];
+***
+
+***Match_Yield***
+***
+foreach (Event in PendingEvents) {
+	switch (Event.Type) {
+		// Initialize players when they join the server
+		case CSmModeEvent::EType::OnPlayerAdded: {
+			StateMgr::InitializePlayer(Event.Player);
+			CarRank::InitializePlayer(Event.Player);
+		}
+	}
+}
+
+StateMgr::Yield();
+***
+
+***Match_InitServer***
+***
+declare Integer Server_PointsLimit;
+declare Integer Server_RoundsPerMap;
+declare Integer Server_MapsPerMatch;
+//UIModules::UnloadModules(["UIModule_Rounds_SmallScoresTable"]);
 ***
 
 ***Match_InitMap*** //before the loading screen
 ***
-
+declare netwrite K_MapTeam[] CurrentMapTeam for Teams[0] = [];
 log("InitMap");
-foreach (Player in Players) {
-    log(Player.User.Login);
-}
+
+declare Integer Map_ValidRoundsNb;
+declare Boolean Map_Skipped;
+
+UpdateScoresTableFooter(S_PointsLimit, S_RoundsPerMap, S_MapsPerMatch, Map_ValidRoundsNb);
 ***
+
 
 ***Match_StartMap*** //after the loading screen
 ***
+declare netwrite Integer Net_Chacalou_Live_Update for Teams[0] = 0;
+Map_Skipped = True;
+CarRank::Reset();
+CurrentMapTeam = [];
+
 declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
-MapTeams = [];
 
 log("StartMap");
-log(Players.count/2);
-for(I, 1, 6) {
-    //log(I);
-    declare Integer RandomIndexPlayer1 = ML::Rand(1, 6);
-    declare Integer RandomIndexPlayer2 = ML::Rand(1, 6);
-    //make an order to have each player in only one team :
-
-
-    MapTeams.add(K_MapTeam {
-        Player1Login = "",
-        Player2Login = "",
-        TeamScore = 0,
-        MapNumber = 0
-    });
-    //log("Team " ^ I ^ " " ^ Players[RandomIndexPlayer1].User.Login ^ " " ^ Players[RandomIndexPlayer2].User.Login);
+for(I, 1, Players.count/2) {
+	CurrentMapTeam.add(K_MapTeam {
+		Player1Login = "",
+		Player2Login = "",
+		LastPlayerLogin = "",
+		Player1Score = 0,
+		Player2Score = 0,
+		LastPlayerScore = 0,
+		Player1CumulatedScore = 0,
+		Player2CumulatedScore = 0,
+		LastPlayerCumulatedScore = 0,
+		TeamScore = 0,
+		CumulateTeamScore = 0,
+		TeamColor = Hex3(I-1),
+		TeamNumber = I-1
+	});
 }
 
+if (Players.count == 1) {
+	CurrentMapTeam.add(K_MapTeam {
+		Player1Login = "",
+		Player2Login = "",
+		LastPlayerLogin = "",
+		Player1Score = 0,
+		Player2Score = 0,
+		LastPlayerScore = 0,
+		Player1CumulatedScore = 0,
+		Player2CumulatedScore = 0,
+		LastPlayerCumulatedScore = 0,
+		TeamScore = 0,
+		CumulateTeamScore = 0,
+		TeamColor = "",
+		TeamNumber = -1
+	});
+}
+
+// Suffle Players list to randomise teams
+declare CSmPlayer[Integer] ShuffledPlayers;
 
 foreach (Player in Players) {
-    //add each player to a random team
-    declare Integer RandomIndex = ML::Rand(0, MapTeams.count-1);
-    UIManager.UIAll.SendChat(TL::ToText(RandomIndex));
-
-    declare Boolean IsOnTeam = False;
-    while (!IsOnTeam) {
-        if(MapTeams[RandomIndex].Player1Login == "") {
-            MapTeams[RandomIndex].Player1Login = Player.User.Login;
-            IsOnTeam = True;
-        } else if (MapTeams[RandomIndex].Player2Login == "") {
-            MapTeams[RandomIndex].Player2Login = Player.User.Login;
-            IsOnTeam = True;
-        } else {
-            RandomIndex = ML::Rand(0, MapTeams.count-1);
-        }
-    }
-
-    log("Player " ^ Player.User.Login ^ " in team " ^ RandomIndex);
+	declare Integer RandomIndex = 0;
+	while (RandomIndex == 0 || ShuffledPlayers.existskey(RandomIndex)) {
+		RandomIndex = ML::Rand(1, 10000);
+	}
+	ShuffledPlayers[RandomIndex] = Player;
 }
 
+ShuffledPlayers = ShuffledPlayers.sortkey();
+
+declare Integer UnassignedPlayers = Players.count;
+
+foreach (Player in ShuffledPlayers) {
+    declare Integer RandomIndex = ML::Rand(0,CurrentMapTeam.count-1);
+    declare Boolean IsOnTeam = False;
+    while (!IsOnTeam) {
+        if(CurrentMapTeam[RandomIndex].Player1Login == "") {
+            CurrentMapTeam[RandomIndex].Player1Login = Player.User.Name;
+            IsOnTeam = True;
+			UnassignedPlayers -= 1;
+        } else if (CurrentMapTeam[RandomIndex].Player2Login == "" && (!SameTeam(CurrentMapTeam[RandomIndex].Player1Login, Player.User.Name) || UnassignedPlayers <= 2)) { //si il ne reste que 2j
+			CurrentMapTeam[RandomIndex].Player2Login = Player.User.Name;
+			IsOnTeam = True;
+			if(UnassignedPlayers == 2 && SameTeam(CurrentMapTeam[RandomIndex].Player1Login, Player.User.Name)) log("noluck ^^");
+			UnassignedPlayers -= 1;
+			break;
+        } else if (UnassignedPlayers == 1 && Players.count % 2 != 0) {
+			log("players are odd, a team has 3 players");
+			CurrentMapTeam[RandomIndex].LastPlayerLogin = Player.User.Name;
+			IsOnTeam = True;
+			UnassignedPlayers -= 1;
+		} else {
+            RandomIndex = ML::Rand(0,CurrentMapTeam.count-1);
+        }
+    } 
+}
+
+
+GetSortedMapTeams();
+
+declare Text[Text] CustomNames = [];
+declare Text[] Display;
+foreach(Score in Scores) {
+	if (Score.User == Null) continue;
+    declare Text CustomName;
+    declare Text PlayerName = "$<"^Score.User.Name^"$>";
+
+    foreach (Key => Team in CurrentMapTeam) {
+        if(Team.Player1Login == Score.User.Name) {
+            CustomName = "$"^ Team.TeamColor ^ "[TEAM "^Key^"]$g "^PlayerName;
+            break;
+        } else if (Team.Player2Login == Score.User.Name) {
+            CustomName = "$"^ Team.TeamColor ^ "[TEAM "^Key^"]$g "^PlayerName;
+            break;
+        } else if (Team.LastPlayerLogin == Score.User.Name) {
+            CustomName = "$"^ Team.TeamColor ^ "[TEAM "^Key^"]$g "^PlayerName;
+			break;
+		} else {
+			CustomName = "$[SOLO]$g "^PlayerName;
+		}
+    }
+        
+    CustomNames[Score.User.WebServicesUserId] = CustomName;
+}
+
+UIModules_ScoresTable::DisplayOnly(Display);
+UIModules_ScoresTable::SetCustomNames(CustomNames);
+MB_WarmUp(S_WarmUpNb, S_WarmUpDuration * 1000, S_WarmUpTimeout * 1000);
 ***
 
 ***Match_InitRound***
 ***
 log("InitRound");
-declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
 
 ***
 
-***Match_StartRound*** //mettre tout ça dans init map 
+***Match_StartRound***
 ***
+declare netwrite Integer Net_Chacalou_Live_Update for Teams[0] = 0;
 
+Race::SortScores(Race::C_Sort_TotalPoints);
+UpdateScoresTableFooter(S_PointsLimit, S_RoundsPerMap, S_MapsPerMatch, Map_ValidRoundsNb);
+StateMgr::ForcePlayersStates([StateMgr::C_State_Playing]);
 log("StartRound");
-Users_SetNbFakeUsers(11,0);
+declare Text NewPointsRep = "";
 
-//log all teams
-foreach (Team in MapTeams) {
-    log("Team " ^ Team.Player1Login ^ " " ^ Team.Player2Login);
+NewPointsRep = TL::ToText(Players.count);
+for (I, 1, Players.count-1) {
+	NewPointsRep = NewPointsRep ^ "," ^ TL::ToText(Players.count-I);
 }
 
-declare Text[Text] CustomNames = [];
-declare Text[] Display;
-foreach(Score in Scores) {
-    declare Text CustomName;
-    declare Text PlayerName = "$<"^Score.User.Name^"$>";
-
-    foreach (Key => Team in MapTeams) {
-        if(Team.Player1Login == Score.User.Login) {
-            CustomName = "["^Key^"$g] "^PlayerName;
-            break;
-        } else if (Team.Player2Login == Score.User.Login) {
-            CustomName = "["^Key^"$g] "^PlayerName;
-            break;
-        }
-    }
-        
-
-    CustomNames[Score.User.WebServicesUserId] = CustomName;
-}
-UIModules_ScoresTable::DisplayOnly(Display);
-UIModules_ScoresTable::SetCustomNames(CustomNames);
+declare ConvertedNewPointsRep = PointsRepartition::ConvertPointsRepartition(NewPointsRep);
+PointsRepartition::SetPointsRepartition(ConvertedNewPointsRep);
 ***
 
+***Rounds_PlayerSpawned***
+***
+CarRank::ThrottleUpdate(CarRank::C_SortCriteria_CurrentRace);
 
+***
+
+***Match_PlayLoop***
+***
+// Manage race events
+declare RacePendingEvents = Race::GetPendingEvents();
+foreach (Event in RacePendingEvents) {
+	Race::ValidEvent(Event);
+	
+	// Waypoint
+	if (Event.Type == Events::C_Type_Waypoint) {
+		CarRank::ThrottleUpdate(CarRank::C_SortCriteria_CurrentRace);
+		if (Event.Player != Null) {
+			if (Event.IsEndRace) {
+				Scores::UpdatePlayerBestRaceIfBetter(Event.Player);
+				Scores::UpdatePlayerBestLapIfBetter(Event.Player);
+				Scores::UpdatePlayerPrevRace(Event.Player);
+				ComputeLatestRaceScores();
+				Race::SortScores(Race::C_Sort_TotalPoints);
+				
+				// Start the countdown if it's the first player to finish
+				if (EndTime <= 0) {
+					EndTime = GetFinishTimeout(S_FinishTimeout);
+				}
+			}
+			if (Event.IsEndLap) {
+				Scores::UpdatePlayerBestLapIfBetter(Event.Player);
+			}
+		}
+	}
+}
+
+// Manage mode events
+foreach (Event in PendingEvents) {
+	if (Event.HasBeenPassed || Event.HasBeenDiscarded) continue;
+	Events::Invalid(Event);
+}
+
+// Server info change
+if (
+	Server_PointsLimit != S_PointsLimit ||
+	Server_RoundsPerMap != S_RoundsPerMap ||
+	Server_MapsPerMatch != S_MapsPerMatch
+) {
+	Server_PointsLimit = S_PointsLimit;
+	Server_RoundsPerMap = S_RoundsPerMap;
+	Server_MapsPerMatch = S_MapsPerMatch;
+	
+	UpdateScoresTableFooter(S_PointsLimit, S_RoundsPerMap, S_MapsPerMatch, Map_ValidRoundsNb);
+}
+
+***
 
 ***Match_EndRound***
 ***
 log("EndRound");
-declare Text[][Text] CustomPoints = [];
-foreach (Score in Scores) {
-    foreach (Key => Team in MapTeams) {
-        if(Team.Player1Login == Score.User.Login) {
-            MapTeams[Key].TeamScore += Score.Points;
-            log("player 1 " ^ Score.Points);
+Race::StopSkipOutroAll();
+EndTime = -1;
+StateMgr::ForcePlayersStates([StateMgr::C_State_Waiting]);
+CarRank::Update(CarRank::C_SortCriteria_CurrentRace);
 
-        } else if (Team.Player2Login == Score.User.Login) {
-            MapTeams[Key].TeamScore += Score.Points;
-            log("player 2 " ^ Score.Points);
-        }
-    }
+if (Semver::Compare(XmlRpc::GetApiVersion(), ">=", "2.1.1")) {
+	Scores::XmlRpc_SendScores(Scores::C_Section_PreEndRound, "");
 }
 
-foreach (Score in Scores) {
-    CustomPoints[Score.User.WebServicesUserId] = [];
-    foreach (Key => Team in MapTeams) {
-        if(Team.Player1Login == Score.User.Login) {
-            CustomPoints[Score.User.WebServicesUserId].add(""^MapTeams[Key].TeamScore);
-            Score.Points = MapTeams[Key].TeamScore;
+if (Round_ForceEndRound || Round_SkipPauseRound || Round_Skipped) {
+	// Cancel points
+	foreach (Score in Scores) {
+		Scores::SetPlayerRoundPoints(Score, 0);
+	}
+	// Do not launch the forced end round sequence after a pause
+	if (!Round_SkipPauseRound) {
+		ForcedEndRoundSequence();
+	}
+	MB_SetValidRound(False);
+} else {
+	Map_ValidRoundsNb += 1;
+	// Get the last round points
+	ComputeLatestRaceScores();
+	Race::SortScores(Race::C_Sort_TotalPoints);
+	SetNewMapTeamScore();
+	GetSortedMapTeams();
 
-        } else if (Team.Player2Login == Score.User.Login) {
-            CustomPoints[Score.User.WebServicesUserId].add(""^MapTeams[Key].TeamScore);
-            Score.Points = MapTeams[Key].TeamScore;
-        }
-    }
+	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::ForcedVisible;
+	UIManager.UIAll.UISequence = CUIConfig::EUISequence::EndRound;
+	MB_Sleep(3000);
+	// Add them to the total scores
+	ComputeScores();
+	Race::SortScores(Race::C_Sort_TotalPoints);
+	MB_Sleep(3000);
+	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::Normal;
+	UIManager.UIAll.UISequence = CUIConfig::EUISequence::Playing;
+	
+	if (MapIsOver(S_UseTieBreak, S_PointsLimit, Map_ValidRoundsNb, S_RoundsPerMap)) {
+		Map_Skipped = False;
+		MB_StopMap();
+	}
 }
-
-foreach (Team in MapTeams) {
-    log("Team " ^ Team.Player1Login ^ " " ^ Team.Player2Login ^ " " ^ Team.TeamScore);
-}
-
-UIModules_ScoresTable::SetCustomPoints(CustomPoints);
-Race::SortScores(Race::C_Sort_TotalPoints);
-MB_Sleep(5000);
-
 
 ***
 
+***Match_EndMap***
+***
+declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
 
+foreach (Team in CurrentMapTeam) {
+	MapTeams.add(K_MapTeam {
+		Player1Login = Team.Player1Login,
+		Player2Login = Team.Player2Login,
+		LastPlayerLogin = Team.LastPlayerLogin,
+		Player1Score = 0,
+		Player2Score = 0,
+		LastPlayerScore = 0,
+		Player1CumulatedScore = Team.Player1CumulatedScore,
+		Player2CumulatedScore = Team.Player2CumulatedScore,
+		LastPlayerCumulatedScore = Team.LastPlayerCumulatedScore,
+		TeamScore = 0,
+		CumulateTeamScore = 0,
+		TeamColor = ""
+	});
+	log("Team " ^ Team.TeamNumber ^ " : " ^ Team.Player1Login ^ " - " ^ Team.Player2Login ^ " - " ^ Team.LastPlayerLogin ^ "craeted");
+}
+
+
+if (MatchIsOver(S_UseTieBreak, S_PointsLimit, MB_GetMapCount(), S_MapsPerMatch, S_RoundsPerMap, Map_Skipped)) {
+	ComputeMatchSoloScores();
+	MB_Sleep(60000);
+	MB_StopMatch();
+}
+
+if (!MB_MapIsRunning() && MB_MatchIsRunning()) MB_SkipPodiumSequence();
+
+Race::SortScores(Race::C_Sort_TotalPoints);
+declare CSmScore Winner <=> Scores::GetBestPlayer(Scores::C_Sort_MatchPoints);
+Scores::SetPlayerWinner(Winner);
+ 
+
+if (!MB_MatchIsRunning()) {
+	// Compute ranking for tracking
+	declare Integer PreviousPoints = 0;
+	declare Integer Rank = 0;
+	foreach (Key => Score in Scores) {
+		if (Key == 0 || Scores::GetPlayerMatchPoints(Score) < PreviousPoints) {
+			PreviousPoints = Scores::GetPlayerMatchPoints(Score);
+			Rank = Key + 1;
+		}
+		Tracking::SendPlayerMatchResult(UIManager, Score.User, Rank, Winner == Score && Scores.count > 1);
+	}
+}
+***
 
 Void SetML() {
 
+	declare Text FrameInstances;
+    for (I, 0, 9) {
+        FrameInstances ^= """<frameinstance pos="82 {{{ 27 - (I * 9)}}}}" modelid="player-ranking"/>""";
+    }
+
+	for (I, 0, 9) {
+        FrameInstances ^= """<frameinstance pos="132 {{{ 27 - (I * 9)}}}}" modelid="player-ranking"/>""";
+    }
+
+	for (I, 0, 9) {
+        FrameInstances ^= """<frameinstance pos="182 {{{ 27 - (I * 9)}}}}" modelid="player-ranking"/>""";
+    }
+
     declare Text Manialink = """
         <manialink version="3" name="{{{C_ChacalouRound_Team}}}">
-        <stylesheet>
+		<stylesheet>
             <style class="center" halign="center" valign="center" textcolor="ffffffff" />
         </stylesheet>
-        <frame id="frame-global" pos="0 0" hidden="1">
+		<framemodel id="model-players">
+			<label id="label-team" pos="-55 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium"/>
+			<label id="player1" pos="0 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium"/>
+			<label id="player2" pos="40 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium"/>
+			<label id="player3" pos = "20 77.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium" hidden="1"/>
+		</framemodel>
+		<framemodel id="model-ranking">
+			<quad pos="-156 14.5" z-index="0" size="50 10" opacity="1" style="Bgs1InRace" substyle="BgTitle3_2"/>
+			<quad id="quad-shadow" pos="-158.7 -22.5" z-index="1" size="55 10" opacity="0.3" style="Bgs1InRace" substyle="BgButtonShadow" hidden="1"/>
+			<label pos="-118 11.4" z-index="0" size="25 5" text="Map Ranking" textfont="RajdhaniMono"  halign="right" opacity="0.85" textsize="2.5"/>
+			<quad pos="-156 7.8" z-index="0" size="50 55"  opacity="1" style="Bgs1InRace" substyle="BgTitle3_2"/>
+			<frame id="frame-ranking">
+				<frameinstance modelid="playerTeam" pos="0 -5.7"/>
+				<frameinstance modelid="playerTeam" pos="0 -11.12"/>
+				<frameinstance modelid="playerTeam" pos="0 -16.54"/>
+				<frameinstance modelid="playerTeam" pos="0 -21.96"/>
+				<frameinstance modelid="playerTeam" pos="0 -27.38"/>
+				<frameinstance modelid="playerTeam" pos="0 -32.8"/>
+				<frameinstance modelid="playerTeam" pos="0 -38.22"/>
+				<frameinstance modelid="playerTeam" pos="0 -43.64"/>
+				<frameinstance modelid="playerTeam" pos="0 -49.06"/>
+            </frame>
+		</framemodel>
+		<framemodel id="playerTeam">
+				<label id="label-players-position" pos="-149 10" z-index="0" size="20 5" textcolor="B1BDC5" text="" textfont="RobotoCondensed"  halign="right" opacity="1" textsize="2"/>
+				<label id="label-players-name" pos="-148 10" z-index="0" size="31 4.2" textcolor="ffffffff" text="" textsize="2" textfont="RobotoCondensed" opacity=".85"/>
+				<label id="label-players-score" pos="-110 10" z-index="0" size="20 5" text="" textfont="RobotoCondensed"  halign="right" opacity=".85" textsize="2.5"/>
+		</framemodel>
+		<framemodel id="player-ranking">
+				<label id="label-players-position" pos="-149 10" z-index="0" size="20 5" textcolor="B1BDC5" text="" textfont="RobotoCondensed"  halign="right" opacity="1" textsize="3"/>
+				<label id="label-players-name" pos="-148 10" z-index="0" size="31 4.2" textcolor="ffffffff" text="" textsize="3" textfont="RajdhaniMono" opacity=".85"/>
+				<label id="label-players-score" pos="-115 10" z-index="0" size="20 5" text="" textfont="RajdhaniMono"  halign="right" opacity=".85" textsize="3"/>
+		</framemodel>
+		<framemodel id="frame-endmatch">
+			<quad pos="-75 55" z-index="0" size="150 110"  opacity="1" style="Bgs1" substyle="BgTitle3_2"/>
+			<label pos="40 50" z-index="0" size="100 50" text="Solo Match Ranking" textfont="RajdhaniMono"  halign="right" opacity="0.85" textsize="8"/>
+			<quad pos="-72.6 39.3" z-index="0" size="145.2 0.6" bgcolor="FFFFFFFF" opacity="0.65"/>
+			<quad id="quad-arrow-down" scriptevents="1" pos="69.5 -50" size="6 6" halign="center" valign="center" style="UICommon64_2" substyle="ArrowDownSlim_light" opacity="0.8"/>
+			<quad id="quad-arrow-up" scriptevents="1" pos="69.5 36" size="6 6" halign="center" valign="center" style="UICommon64_2" substyle="ArrowUpSlim_light" opacity="0.8"/>
+			<frame id="player-rankings">
+				{{{FrameInstances}}}
+			</frame>
+		</framemodel>
+
+		<frame id="frame-global" pos="0 0" >
+			<frameinstance modelid="model-players"/>
+			<frameinstance modelid="model-ranking" pos="-5.5 -20"/>
+			<frame id="frame-end" pos="0 0" hidden="1" scale="0">
+				<frameinstance modelid="frame-endmatch" pos="0 0"/>
+			</frame>
         </frame>
         <script><!--
 
@@ -208,25 +580,283 @@ Void SetML() {
             #Include "MathLib" as ML
 
             #Const C_AttachId {{{dump(C_ChacalouRound_Team)}}}
+
+			{{{dumptype(K_MapTeam)}}}
+
             
-           
+           Void displayTeamNames(K_MapTeam _Team) {
+				declare CMlFrame Frame_Global = (Page.GetFirstChild("frame-global") as CMlFrame);
+
+				declare CMlLabel Player1 = (Frame_Global.GetFirstChild("player1") as CMlLabel);
+				declare CMlLabel Player2 = (Frame_Global.GetFirstChild("player2") as CMlLabel);
+				declare CMlLabel Player3 = (Frame_Global.GetFirstChild("player3") as CMlLabel);
+				declare CMlLabel TeamName = (Frame_Global.GetFirstChild("label-team") as CMlLabel);
+
+				if(Player1.Visible == False) {
+					Player1.Visible = True;
+					Player2.Visible = True;
+				}
+
+				Player3.Visible = False;
+	
+				Player1.Value = _Team.Player1Login ^ " - " ^ _Team.Player1CumulatedScore;
+				Player2.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+
+				TeamName.Value ="Team " ^ TL::ToText(_Team.TeamNumber);
+
+		   }
+
+		   Void displayTeamNamesThree(K_MapTeam _Team) {
+			declare CMlFrame Frame_Global = (Page.GetFirstChild("frame-global") as CMlFrame);
+
+			declare CMlLabel Player1 = (Frame_Global.GetFirstChild("player1") as CMlLabel);
+			declare CMlLabel Player2 = (Frame_Global.GetFirstChild("player2") as CMlLabel);
+			declare CMlLabel Player3 = (Frame_Global.GetFirstChild("player3") as CMlLabel);
+			declare CMlLabel TeamName = (Frame_Global.GetFirstChild("label-team") as CMlLabel);
+
+
+			if(Player1.Visible == False) {
+				Player1.Visible = True;
+				Player2.Visible = True;
+			}
+
+			Player3.Visible = True;
+
+			if (_Team.Player1CumulatedScore > _Team.Player2CumulatedScore && _Team.Player1CumulatedScore > _Team.LastPlayerCumulatedScore) {
+				Player1.Value = _Team.Player2CumulatedScore ^ " - " ^ _Team.Player1CumulatedScore;
+				if (_Team.Player2CumulatedScore > _Team.LastPlayerCumulatedScore) {
+					Player2.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+					Player3.Value = _Team.LastPlayerLogin ^ " - " ^ _Team.LastPlayerCumulatedScore;
+				} else {
+					Player2.Value = _Team.LastPlayerLogin ^ " - " ^ _Team.LastPlayerCumulatedScore;
+					Player3.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+				}
+			} else if (_Team.Player2CumulatedScore > _Team.Player1CumulatedScore && _Team.Player2CumulatedScore > _Team.LastPlayerCumulatedScore) {
+				Player1.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+				if (_Team.Player1CumulatedScore > _Team.LastPlayerCumulatedScore) {
+					Player2.Value = _Team.Player1Login ^ " - " ^ _Team.Player1CumulatedScore;
+					Player3.Value = _Team.LastPlayerLogin ^ " - " ^ _Team.LastPlayerCumulatedScore;
+				} else {
+					Player2.Value = _Team.LastPlayerLogin ^ " - " ^ _Team.LastPlayerCumulatedScore;
+					Player3.Value = _Team.Player1Login ^ " - " ^ _Team.Player1CumulatedScore;
+				}
+			} else if (_Team.LastPlayerCumulatedScore > _Team.Player1CumulatedScore && _Team.LastPlayerCumulatedScore > _Team.Player2CumulatedScore) {
+				Player1.Value = _Team.LastPlayerLogin ^ " - " ^ _Team.LastPlayerCumulatedScore;
+				if (_Team.Player1CumulatedScore > _Team.Player2CumulatedScore) {
+					Player2.Value = _Team.Player1Login ^ " - " ^ _Team.Player1CumulatedScore;
+					Player3.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+				} else {
+					Player2.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+					Player3.Value = _Team.Player1Login ^ " - " ^ _Team.Player1CumulatedScore;
+				}
+			}
+			else {
+				Player1.Value = _Team.Player1Login ^ " - " ^ _Team.Player1CumulatedScore;
+				Player2.Value = _Team.Player2Login ^ " - " ^ _Team.Player2CumulatedScore;
+				Player3.Value = _Team.LastPlayerLogin ^ " - " ^ _Team.LastPlayerCumulatedScore;
+			}
+			TeamName.Value = "Team " ^ TL::ToText(_Team.TeamNumber);
+	   }
+
+	   Void HidePointOverlay() {
+			declare CMlFrame Frame_Global = (Page.GetFirstChild("frame-global") as CMlFrame);
+			declare CMlLabel Player1 = (Frame_Global.GetFirstChild("player1") as CMlLabel);
+			declare CMlLabel Player2 = (Frame_Global.GetFirstChild("player2") as CMlLabel);
+			declare CMlLabel Player3 = (Frame_Global.GetFirstChild("player3") as CMlLabel);
+
+			Player1.Visible = False;
+			Player2.Visible = False;
+			Player3.Visible = False;
+	   }
+
+	    Void displayMLTeam(CMlFrame _Frame,Integer _Key) {
+
+			declare netread K_MapTeam[] SortedMapTeams for Teams[0] = [];
+
+			declare CMlLabel Label_Players_Name <=> (_Frame.GetFirstChild("label-players-name") as CMlLabel);
+			declare CMlLabel Label_Players_Score <=> (_Frame.GetFirstChild("label-players-score") as CMlLabel);
+			declare CMlLabel Label_Players_Position <=> (_Frame.GetFirstChild("label-players-position") as CMlLabel);
+
+			if (SortedMapTeams[_Key].LastPlayerLogin != "")
+				Label_Players_Name.Value = SortedMapTeams[_Key].Player1Login ^ " - " ^ SortedMapTeams[_Key].Player2Login ^ " - " ^ SortedMapTeams[_Key].LastPlayerLogin;
+			else
+				Label_Players_Name.Value = SortedMapTeams[_Key].Player1Login ^ " - " ^ SortedMapTeams[_Key].Player2Login;
+
+			Label_Players_Position.Value = TL::ToText(_Key + 1) ^ "|";
+			Label_Players_Score.Value = TL::ToText(SortedMapTeams[_Key].CumulateTeamScore);
+
+			declare CMlQuad Quad_Shadow <=> (Page.GetFirstChild("quad-shadow") as CMlQuad);
+
+			if (_Key > 7 && SortedMapTeams[_Key].Player1Login == InputPlayer.User.Name || SortedMapTeams[_Key].Player2Login == InputPlayer.User.Name || SortedMapTeams[_Key].LastPlayerLogin == InputPlayer.User.Name) 
+				Quad_Shadow.Visible = True;
+			
+			else Quad_Shadow.Visible = False;
+		}
+
+		Boolean InputPlayerIsSpectator() {
+			if (GUIPlayer != Null && InputPlayer != Null && GUIPlayer.User.Login == InputPlayer.User.Login) return False;
+			//if (GUIPlayer != Null && InputPlayer != Null) log(GUIPlayer.User.Name ^ " / " ^ InputPlayer.User.Name);
+			return True;
+		}
+
+		Integer EndMatchScoresML(Integer _Floor) {
+			if (_Floor == -1) return 0;
+			
+			declare netread Text[Text][] EndMatchPlayerScore for Teams[0] = [];
+
+			if (EndMatchPlayerScore.count < 30 + _Floor && EndMatchPlayerScore.count >= 30) return _Floor - 1;
+			
+
+			
+			declare CMlFrame Frame_Player <=> (Page.GetFirstChild("player-rankings") as CMlFrame);
+			log(EndMatchPlayerScore.count);
+
+			foreach (Key => Team in EndMatchPlayerScore) {
+				declare Integer KeyPlayer = Key + _Floor;
+				if (!Frame_Player.Controls.existskey(Key)) break;
+
+				declare CMlFrame Frame_ = Frame_Player.Controls[Key] as CMlFrame;
+				declare CMlFrame Frame = Frame_ as CMlFrame;
+
+				declare CMlLabel Label_Players_Name <=> (Frame.GetFirstChild("label-players-name") as CMlLabel);
+				declare CMlLabel Label_Players_Score <=> (Frame.GetFirstChild("label-players-score") as CMlLabel);
+				declare CMlLabel Label_Players_Position <=> (Frame.GetFirstChild("label-players-position") as CMlLabel);
+
+				Label_Players_Name.Value = EndMatchPlayerScore[KeyPlayer]["Login"];
+				Label_Players_Position.Value = TL::ToText(KeyPlayer + 1) ^ "|";
+				Label_Players_Score.Value = EndMatchPlayerScore[KeyPlayer]["Score"];
+			}
+			return _Floor;
+		}
+
+		Void UpdateRank() {
+			declare netread K_MapTeam[] SortedMapTeams for Teams[0] = [];
+
+			declare CMlFrame Frame_TeamRanking <=> (Page.GetFirstChild("frame-ranking") as CMlFrame);
+
+			declare FrameKey = 0;
+			declare Integer PlayerKey = 0;
+			declare updateCompleted = False;
+
+			// Vérifiez si le InputPlayer est dans le top 8
+			declare Boolean isInputPlayerInTop8 = False;
+			for (I,0,7) {
+				if(!SortedMapTeams.existskey(I)) break;
+				if (InputPlayer.User.Name == SortedMapTeams[I].Player1Login || 
+					InputPlayer.User.Name == SortedMapTeams[I].Player2Login || 
+					InputPlayer.User.Name == SortedMapTeams[I].LastPlayerLogin ||
+					InputPlayerIsSpectator())
+				{
+					isInputPlayerInTop8 = True;
+					break;
+				}
+			}
+
+
+			foreach (Key => Team in SortedMapTeams) {
+				if (!Frame_TeamRanking.Controls.existskey(FrameKey)) break;
+				if (!SortedMapTeams.existskey(Key)) break;
+				if (updateCompleted) break;
+
+
+				if (PlayerKey > 7 && (InputPlayer.User.Name == SortedMapTeams[PlayerKey].Player1Login || InputPlayer.User.Name == SortedMapTeams[PlayerKey].Player2Login || InputPlayer.User.Name == SortedMapTeams[PlayerKey].LastPlayerLogin)) {
+					if(!SortedMapTeams.existskey(PlayerKey+1)) FrameKey = 8;
+					else {
+						for (I,6,8,2) {
+							declare CMlFrame Frame_ = Frame_TeamRanking.Controls[I] as CMlFrame;
+							declare CMlFrame Frame = Frame_ as CMlFrame;
+
+							declare Integer NewKeyPlayer = 0;
+
+							if (I == 6) NewKeyPlayer = PlayerKey - 1;
+							else NewKeyPlayer = PlayerKey + 1;
+
+							displayMLTeam(Frame,NewKeyPlayer);
+						}
+						FrameKey = 7;
+						updateCompleted = True;
+					}
+			
+				}
+
+				if (isInputPlayerInTop8) {
+					if (FrameKey >= 8) {
+				
+						declare CMlFrame Frame_ = Frame_TeamRanking.Controls[FrameKey] as CMlFrame;
+						declare CMlFrame Frame = Frame_ as CMlFrame;
+
+						if (SortedMapTeams.existskey(8)) displayMLTeam(Frame,8);
+						break; // Arrêter après avoir affiché le top 8
+					}
+				}
+
+				declare CMlFrame Frame_ = Frame_TeamRanking.Controls[FrameKey] as CMlFrame;
+				declare CMlFrame Frame = Frame_ as CMlFrame;
+
+				displayMLTeam(Frame,PlayerKey);
+
+				PlayerKey = Key;
+				PlayerKey += 1;
+				if (FrameKey < 8) FrameKey += 1;
+				}
+			}
 
             main() {
                 log("Init " ^ C_AttachId);
-
-
                 wait (InputPlayer != Null);
 
                 declare CMlFrame Frame_Global = (Page.GetFirstChild("frame-global") as CMlFrame);
+
                 Frame_Global.Visible = True;
 
+				declare netread Integer Net_Chacalou_Live_Update for Teams[0] = 0;
+				declare netread K_MapTeam[] CurrentMapTeam for Teams[0] = [];
+
+				declare Integer Last_Update = Net_Chacalou_Live_Update;
+				declare Integer Last_EndMatchDisplayer_Floor = 0;
 
                 while (True) {
                     yield;
+					foreach(Event in PendingEvents) {
+                        if (Event.Control == Null) continue; // Not an event on the UI
+                        declare Quad <=> (Event.Control as CMlQuad);
 
-                    
-                }
-            }
+                        if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-arrow-up") {
+							Last_EndMatchDisplayer_Floor = EndMatchScoresML(Last_EndMatchDisplayer_Floor - 1);
+                    	}
+
+						if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-arrow-down") {
+							Last_EndMatchDisplayer_Floor = EndMatchScoresML(Last_EndMatchDisplayer_Floor + 1);
+                    	}
+					}
+
+					if (Last_Update != Net_Chacalou_Live_Update) {
+						if (Net_Chacalou_Live_Update == -2) {
+							declare CMlFrame Frame_Player <=> (Page.GetFirstChild("frame-end") as CMlFrame);
+							Frame_Player.Visible = True;
+
+							AnimMgr.Add(Frame_Player, "<a scale=1./>", 1000, CAnimManager::EAnimManagerEasing::QuadOut);
+
+							log("send dkjfshlkjsdhfklsdfh");
+							declare Integer Trash = EndMatchScoresML(0);
+						}
+
+						else {
+							foreach (Team in CurrentMapTeam) {
+								if(InputPlayer.User.Name == Team.Player1Login || InputPlayer.User.Name == Team.Player2Login || InputPlayer.User.Name == Team.LastPlayerLogin) {
+									if (Team.LastPlayerLogin != "")
+										displayTeamNamesThree(Team);
+									else displayTeamNames(Team);
+									break;
+								} else 
+									HidePointOverlay();
+							}
+							UpdateRank();
+						}
+							Last_Update = Net_Chacalou_Live_Update;
+					}
+				}
+			}
         --></script>
     </manialink>
     """;
@@ -236,4 +866,345 @@ Void SetML() {
     Layers::Attach(C_ChacalouRound_Team);
 }
 
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// Functions
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/** Update the scores table footer text
+ *
+ *	@param	_PointsLimit							The points limit
+ *	@param	_RoundsPerMap							The number of rounds per map
+ *	@param	_MapsPerMatch							The number of maps per match
+ *	@param	_ValidRoundsNb						Number of valid rounds played
+ */
+ Void UpdateScoresTableFooter(Integer _PointsLimit, Integer _RoundsPerMap, Integer _MapsPerMatch, Integer _ValidRoundsNb) {
+	declare Text[] Parts;
+	declare Text Message = "";
+	if (_PointsLimit > 0) {
+		if (Parts.count > 0) Message ^= "\n";
+		Message ^= """%{{{Parts.count + 1}}}{{{_PointsLimit}}}""";
+		//L16N [Rounds] Number of points to reach to win the match.
+		Parts.add(_("Points limit : "));
+	}
+	if (_RoundsPerMap > 0) {
+		if (Parts.count > 0) Message ^= "\n";
+		Message ^= """%{{{Parts.count + 1}}}{{{ML::Min(_ValidRoundsNb+1, _RoundsPerMap)}}}/{{{_RoundsPerMap}}}""";
+		//L16N [Rounds] Number of rounds played during the track.
+		Parts.add(_("Rounds : "));
+	}
+	if (_MapsPerMatch > 0) {
+		if (Parts.count > 0) Message ^= "\n";
+		Message ^= """%{{{Parts.count + 1}}}{{{MB_GetMapCount()}}}/{{{_MapsPerMatch}}}""";
+		//L16N [Rounds] Number of tracks played during the match.
+		Parts.add(_("Tracks : "));
+	}
+	
+	switch (Parts.count) {
+		case 0: UIModules_ScoresTable::SetFooterInfo(Message);
+		case 1: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0]));
+		case 2: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0], Parts[1]));
+		case 3: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0], Parts[1], Parts[2]));
+	}
+}
+
+Boolean SameTeam(Text _Player1Login, Text _Player2Login) {
+    declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
+    foreach (Team in MapTeams) {
+
+        if ((Team.Player1Login == _Player1Login && Team.Player2Login == _Player2Login) || 
+            (Team.Player1Login == _Player2Login && Team.Player2Login == _Player1Login)) {
+            return True;
+        }
+    }
+    return False;
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/** Get the time left to the players to finish the round after the first player
+ *
+ *	@return 		The time left in ms
+ */
+Integer GetFinishTimeout(Integer _FinishTimeout) {
+	declare Integer FinishTimeout = 0;
+	
+	if (_FinishTimeout >= 0) {
+		FinishTimeout = _FinishTimeout * 1000;
+	} else {
+		FinishTimeout = 5000;
+		if (Map.TMObjective_IsLapRace && Race::GetLapsNb() > 0 && Map.TMObjective_NbLaps > 0) {
+			FinishTimeout += ((Map.TMObjective_AuthorTime / Map.TMObjective_NbLaps) * Race::GetLapsNb()) / 6;
+		} else {
+			FinishTimeout += Map.TMObjective_AuthorTime / 6;
+		}
+	}
+	
+	return Now + FinishTimeout;
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/// Compute the latest race scores
+Void ComputeLatestRaceScores() {
+    declare netwrite K_MapTeam[] CurrentMapTeam for Teams[0] = [];
+	Race::SortScores(Race::C_Sort_PrevRaceTime);
+	
+	// Points distributed between all players
+	declare Integer I = 0;
+	declare Integer[] PointsRepartition = PointsRepartition::GetPointsRepartition();
+	foreach (Score in Scores) {
+		if (Scores::GetPlayerPrevRaceTime(Score) > 0) {
+			declare Integer Points = 0;
+			if (PointsRepartition.count > 0) {
+				if (PointsRepartition.existskey(I)) {
+					Points = PointsRepartition[I];
+				} else {
+					Points = PointsRepartition[PointsRepartition.count - 1];
+				}
+			}
+			foreach (Key => Team in CurrentMapTeam) {
+				if(Team.Player1Login == Score.User.Name) {
+					CurrentMapTeam[Key].Player1Score = Points;
+				} else if (Team.Player2Login == Score.User.Name) {
+					CurrentMapTeam[Key].Player2Score = Points;
+				} else if (Team.LastPlayerLogin == Score.User.Name) {
+					CurrentMapTeam[Key].LastPlayerScore = Points;
+				}
+				CurrentMapTeam[Key].TeamScore = 0;
+			}
+            Scores::SetPlayerRoundPoints(Score, Points);
+			I += 1;
+		} else {
+			Scores::SetPlayerRoundPoints(Score, 0);
+		}
+	}
+ 
+}
+
+
+Void SetNewMapTeamScore() { //TODO TO CHECK
+	declare netwrite K_MapTeam[] CurrentMapTeam for Teams[0] = [];
+
+	foreach (Score in Scores) {
+
+		foreach (Key => Team in CurrentMapTeam) {
+			if (!(Scores::GetPlayerPrevRaceTime(Score) > 0)) continue;
+			if (Team.LastPlayerLogin != "") {
+				if (Team.Player1Login == Score.User.Name) {
+					if (!(CurrentMapTeam[Key].Player1Score < CurrentMapTeam[Key].Player2Score &&
+						CurrentMapTeam[Key].Player1Score < CurrentMapTeam[Key].LastPlayerScore)) {
+						CurrentMapTeam[Key].CumulateTeamScore += CurrentMapTeam[Key].Player1Score;
+						CurrentMapTeam[Key].TeamScore += CurrentMapTeam[Key].Player1Score;
+					}
+					CurrentMapTeam[Key].Player1CumulatedScore += CurrentMapTeam[Key].Player1Score;
+				} else if (Team.Player2Login == Score.User.Name) {
+					if (!(CurrentMapTeam[Key].Player2Score < CurrentMapTeam[Key].Player1Score &&
+						CurrentMapTeam[Key].Player2Score < CurrentMapTeam[Key].LastPlayerScore)) {
+						CurrentMapTeam[Key].CumulateTeamScore += CurrentMapTeam[Key].Player2Score;
+						CurrentMapTeam[Key].TeamScore += CurrentMapTeam[Key].Player2Score;
+					}
+					CurrentMapTeam[Key].Player2CumulatedScore += CurrentMapTeam[Key].Player2Score;
+				} else if (Team.LastPlayerLogin == Score.User.Name) {
+					if(!(CurrentMapTeam[Key].LastPlayerScore < CurrentMapTeam[Key].Player1Score &&
+						CurrentMapTeam[Key].LastPlayerScore < CurrentMapTeam[Key].Player2Score)) {
+						CurrentMapTeam[Key].CumulateTeamScore += CurrentMapTeam[Key].LastPlayerScore;
+						CurrentMapTeam[Key].TeamScore += CurrentMapTeam[Key].LastPlayerScore;
+					}
+					CurrentMapTeam[Key].LastPlayerCumulatedScore += CurrentMapTeam[Key].LastPlayerScore;
+				}
+
+			} else if(Team.Player1Login == Score.User.Name) {
+				CurrentMapTeam[Key].TeamScore += CurrentMapTeam[Key].Player1Score;
+				CurrentMapTeam[Key].Player1CumulatedScore += CurrentMapTeam[Key].Player1Score;
+				CurrentMapTeam[Key].CumulateTeamScore += CurrentMapTeam[Key].Player1Score;
+
+			} else if (Team.Player2Login == Score.User.Name) {
+				CurrentMapTeam[Key].TeamScore += CurrentMapTeam[Key].Player2Score;
+				CurrentMapTeam[Key].Player2CumulatedScore += CurrentMapTeam[Key].Player2Score;
+				CurrentMapTeam[Key].CumulateTeamScore += CurrentMapTeam[Key].Player2Score;
+			}
+		}
+	}
+
+	foreach (Score in Scores) {
+		if (Score.User == Null) continue;
+		foreach (Key => Team in CurrentMapTeam) {
+			if(Team.Player1Login == Score.User.Name) {
+				Scores::SetPlayerRoundPoints(Score, CurrentMapTeam[Key].TeamScore);
+
+			} else if (Team.Player2Login == Score.User.Name) {
+				Scores::SetPlayerRoundPoints(Score, CurrentMapTeam[Key].TeamScore);
+
+			} else if (Team.LastPlayerLogin == Score.User.Name) {
+				Scores::SetPlayerRoundPoints(Score, CurrentMapTeam[Key].TeamScore);
+
+			}
+		}
+	}
+}
+
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/// Compute the map scores
+Void ComputeScores() {
+	Scores::EndRound();
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/** Check if the points limit was reached
+ *
+ *	@param	_UseTieBreak							Prevent ties or not
+ *	@param	_PointsLimit							Number of points to get to win the match
+ *
+ *	@return														C_PointsLimit_Reached if the points limit is reached
+ *																		C_PointsLimit_Tie if there is a tie
+ *																		C_PointsLimit_NotReached if the points limit is not reached
+ */
+Integer PointsLimitReached(Boolean _UseTieBreak, Integer _PointsLimit) {
+	declare Integer MaxScore = -1;
+	declare Boolean Tie = False;
+	foreach (Score in Scores) {
+		declare Integer Points = Scores::GetPlayerMatchPoints(Score);
+		if (Points > MaxScore) {
+			MaxScore = Points;
+			Tie = False;
+		} else if (Points == MaxScore) {
+			Tie = True;
+		}
+	}
+	
+	if (_UseTieBreak && Tie) return C_PointsLimit_Tie; //< There is a tie and it is not allowed
+	if (_PointsLimit > 0 && MaxScore >= _PointsLimit) return C_PointsLimit_Reached; //< There is a points limit and it is reached
+	return C_PointsLimit_NotReached; //< There is no points limit or the points limit is not reached
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/** Check if we should go to the next map
+ *
+ *	@param	_UseTieBreak							Prevent ties or not
+ *	@param	_PointsLimit							Number of points to get to win the match
+ *	@param	_ValidRoundsNb						Number of valid rounds played
+ *	@param	_RoundsPerMap							Number of rounds to play to complete the map
+ *
+ *	@return		True if it is the case, false otherwise
+ */
+Boolean MapIsOver(Boolean _UseTieBreak, Integer _PointsLimit, Integer _ValidRoundsNb, Integer _RoundsPerMap) {
+	declare Integer PointsLimitReached = PointsLimitReached(_UseTieBreak, _PointsLimit);
+	
+	Log::Log("""[Rounds] MapIsOver() > _UseTieBreak: {{{_UseTieBreak}}} | _PointsLimit: {{{_PointsLimit}}} | _ValidRoundsNb: {{{_ValidRoundsNb}}} | _RoundsPerMap: {{{_RoundsPerMap}}} | PointsLimitReached: {{{PointsLimitReached}}}""");
+	
+	if (PointsLimitReached == C_PointsLimit_Reached) return True; //< There is a points limit and it is reached
+	if (_RoundsPerMap > 0 && _ValidRoundsNb >= _RoundsPerMap) return True; //< There is a rounds limit and it is reached
+	
+	return False;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
+/** Check if we should go to the next match
+ *
+ *	@param	_UseTieBreak							Prevent ties or not
+ *	@param	_PointsLimit							Number of points to get to win the match
+ *	@param	_MapsPerMatch							Number of maps to play to complete a match
+ *	@param	_RoundsPerMap							Number of rounds to play to complete the map
+ *
+ *	@return		True if it is the case, false otherwise
+ */
+Boolean MatchIsOver(Boolean _UseTieBreak, Integer _PointsLimit, Integer _MapCount, Integer _MapsPerMatch, Integer _RoundsPerMap, Boolean _MapSkipped) {
+	declare Integer PointsLimitReached = PointsLimitReached(_UseTieBreak, _PointsLimit);
+	
+	Log::Log("""[Rounds] MatchIsOver() > _UseTieBreak: {{{_UseTieBreak}}} | _PointsLimit: {{{_PointsLimit}}} | _MapCount: {{{_MapCount}}} | _MapsPerMatch: {{{_MapsPerMatch}}} | _RoundsPerMap: {{{_RoundsPerMap}}} | PointsLimitReached: {{{PointsLimitReached}}} | _MapSkipped : {{{_MapSkipped}}}""");
+
+	// If there is a point limit and it is reached, stop the match
+	if (PointsLimitReached == C_PointsLimit_Reached) {
+		return True;
+	}
+	// If there is an explicit maps limit ...
+	else if (_MapsPerMatch >= 1) {
+		if (
+			(_MapCount >= _MapsPerMatch && PointsLimitReached != C_PointsLimit_Tie) || //< ... stop the match if the maps limit is reached and the match is not a tie
+			(_MapSkipped && _MapsPerMatch == 1 && _MapCount >= _MapsPerMatch) //< ... stop the match if the map was skipped and the match is played on only one map
+		) {
+			return True;
+		}
+	}
+	// If there is a rounds limit but no maps limit, continue to play until another limit is reached
+	else if (_RoundsPerMap >= 1) {
+		return False;
+	}
+	// If there is neither a points limit nor a rounds limit, always stop the match at the end of the first map, even if there is a tie
+	else {
+		return True;
+	}
+	
+	// In all other cases continue to play
+	return False;
+}
+
+Text Hex3(Integer _Index){
+	//if the index is not in the array, return the last value
+	if (_Index >= C_Color_Array.count) return C_Color_Array[C_Color_Array.count - 1];
+	return C_Color_Array[_Index];
+}
+
+Void GetSortedMapTeams() {
+	declare netwrite Integer Net_Chacalou_Live_Update for Teams[0] = 0;
+
+	declare netwrite K_MapTeam[] CurrentMapTeam for Teams[0] = [];
+	declare netwrite K_MapTeam[] SortedMapTeams for Teams[0] = [];
+
+	SortedMapTeams = CurrentMapTeam;
+	
+	declare K_MapTeam Temp_Team;
+
+	for (I, 0, CurrentMapTeam.count - 1) {
+		for (j, 0, CurrentMapTeam.count - I - 2) {
+			 if (SortedMapTeams[j].CumulateTeamScore < SortedMapTeams[j+1].CumulateTeamScore) {
+				Temp_Team = SortedMapTeams[j];
+				SortedMapTeams[j] = SortedMapTeams[j + 1];
+				SortedMapTeams[j + 1] = Temp_Team;
+			}
+		}
+	}
+	Net_Chacalou_Live_Update += 1;
+}
+
+Void ComputeMatchSoloScores() {
+	declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
+	declare netwrite Integer Net_Chacalou_Live_Update for Teams[0] = 0;
+
+	declare netwrite Text[Text][] EndMatchPlayerScore for Teams[0] = [];
+	EndMatchPlayerScore = [];
+
+	foreach (Score in Scores) {
+		declare Integer PlayerMatchScore = 0;
+		foreach (Team in MapTeams) {
+			if (Team.Player1Login == Score.User.Name) {
+				PlayerMatchScore += Team.Player1CumulatedScore;
+			} else if (Team.Player2Login == Score.User.Name) {
+				PlayerMatchScore += Team.Player2CumulatedScore;
+			} else if (Team.LastPlayerLogin == Score.User.Name) {
+				PlayerMatchScore += Team.LastPlayerCumulatedScore;
+			}
+		}
+		EndMatchPlayerScore.add([
+			"Login" => Score.User.Name,
+			"Score" => TL::ToText(PlayerMatchScore)
+		]);
+	}
+
+	for (I, 0, EndMatchPlayerScore.count - 1) {
+		for (j, 0, EndMatchPlayerScore.count - I - 2) {
+			if (TL::ToInteger(EndMatchPlayerScore[j]["Score"]) < TL::ToInteger(EndMatchPlayerScore[j+1]["Score"])) {
+				declare Text Temp_Login = EndMatchPlayerScore[j]["Login"];
+				declare Text Temp_Score = EndMatchPlayerScore[j]["Score"];
+				EndMatchPlayerScore[j]["Login"] = EndMatchPlayerScore[j + 1]["Login"];
+				EndMatchPlayerScore[j]["Score"] = EndMatchPlayerScore[j + 1]["Score"];
+				EndMatchPlayerScore[j + 1]["Login"] = Temp_Login;
+				EndMatchPlayerScore[j + 1]["Score"] = Temp_Score;
+			}
+		}
+	}
+	Net_Chacalou_Live_Update = -2;
+
+}
 
