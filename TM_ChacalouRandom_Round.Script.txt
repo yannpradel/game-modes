@@ -1,3 +1,4 @@
+/** @context CMlScriptIngame */
 /**
 * EscapeGame Rounds Script
 */
@@ -17,6 +18,8 @@
 #Include "Libs/Nadeo/TMGame/Utils/Tracking.Script.txt" as Tracking
 #Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/Checkpoint_Server.Script.txt" as UIModules_Checkpoint
 #Include "Libs/Nadeo/TMGame/Modes/Base/UIModules/PauseMenuOnline_Server.Script.txt" as UIModules_PauseMenu_Online
+
+
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Settings
@@ -153,10 +156,11 @@ UIModules_Sign16x9Small::SetScoreMode(UIModules_Sign16x9Small::C_ScoreMode_Point
 // Hide SM Overlay
 UIManager.UIAll.OverlayHideSpectatorInfos = True;
 UIManager.UIAll.OverlayHideCountdown = True;
-if (S_ScriptEnvironment == "development") Users_SetNbFakeUsers(30,0);
+if (S_ScriptEnvironment == "development") Users_SetNbFakeUsers(0,0);
 UIManager.UIAll.PlayerDisableFreeCam = True;
 
 SetML();
+
 ***
 
 ***Match_StartMatch***
@@ -573,8 +577,9 @@ Void SetML() {
 			<frame id="frame-end" pos="0 0" hidden="1" scale="0">
 				<frameinstance modelid="frame-endmatch" pos="0 0"/>
 			</frame>
-			<quad scriptevents="1" id="quad-discord" image="https://cdn.discordapp.com/attachments/922936935155105853/1195774589838569613/discord-logo-4-1.png?" pos="148 0" z-index="0" size="10 10" bgcolor="FFFFFFFF" opacity="1" hidden="0"/>
+			<quad scriptevents="1" id="quad-discord" image="https://cdn.discordapp.com/attachments/922936935155105853/1195774589838569613/discord-logo-4-1.png?" pos="148 -30" z-index="0" size="10 10" bgcolor="FFFFFFFF" opacity="1" hidden="0"/>
         </frame>
+
         <script><!--
 
             #Include "TextLib" as TL
@@ -592,7 +597,6 @@ Void SetML() {
 				declare CMlLabel Player2 = (Frame_Global.GetFirstChild("player2") as CMlLabel);
 				declare CMlLabel Player3 = (Frame_Global.GetFirstChild("player3") as CMlLabel);
 				declare CMlLabel TeamName = (Frame_Global.GetFirstChild("label-team") as CMlLabel);
-				
 
 				if(Player1.Visible == False) {
 					Player1.Visible = True;
