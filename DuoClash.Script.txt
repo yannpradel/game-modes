@@ -1,6 +1,6 @@
 /** @context CMlScriptIngame */
 /**
-* EscapeGame Rounds Script
+* DuoClash Rounds Script
 */
 #Extends "Modes/Nadeo/Trackmania/Base/TrackmaniaRoundsBase.Script.txt"
 
@@ -57,7 +57,7 @@
 #Const C_CelebrateRecordMedal True
 
 //----------Fontur States----------//
-#Const C_ChacalouRound_Team "RandomRound.LiveRace"
+#Const C_DuoClash "DuoClash.Team"
 #Const C_Color_Array [
 	"F00","0F0","00F","FF0","F0F","0FF","800","080","008","F80","F08","0F8","8F0","08F","80F","88F","8FF","F88","FF8","F8F","8F8","888","4F4","F4F","44F","F44","4FF","F4F","4F4","44F","444","FAA","AFA","AAF","AFF","FAF","AFA","AAF","AAA","DAD","ADA","AAD","BEB","EBE","BEB","EBE","CDC","DCD"
 ]
@@ -523,7 +523,7 @@ Void SetML() {
     }
 
     declare Text Manialink = """
-        <manialink version="3" name="{{{C_ChacalouRound_Team}}}">
+        <manialink version="3" name="{{{C_DuoClash}}}">
 		<stylesheet>
             <style class="center" halign="center" valign="center" textcolor="ffffffff" />
         </stylesheet>
@@ -557,7 +557,7 @@ Void SetML() {
 		</framemodel>
 		<framemodel id="player-ranking">
 				<label id="label-players-position" pos="-149 10" z-index="0" size="20 5" textcolor="B1BDC5" text="" textfont="RobotoCondensed"  halign="right" opacity="1" textsize="3"/>
-				<label id="label-players-name" pos="-148 10" z-index="0" size="31 4.2" textcolor="ffffffff" text="" textsize="3" textfont="RajdhaniMono" opacity=".85"/>
+				<label id="label-players-name" pos="-148 10" z-index="0" size="22 4.2" textcolor="ffffffff" text="" textsize="3" textfont="RajdhaniMono" opacity=".85"/>
 				<label id="label-players-score" pos="-115 10" z-index="0" size="20 5" text="" textfont="RajdhaniMono"  halign="right" opacity=".85" textsize="3"/>
 		</framemodel>
 		<framemodel id="frame-endmatch">
@@ -574,7 +574,7 @@ Void SetML() {
 		<frame id="frame-global" pos="0 0" >
 			<frameinstance modelid="model-players"/>
 			<frameinstance modelid="model-ranking" pos="-5.5 -20"/>
-			<frame id="frame-end" pos="0 0" hidden="1" scale="0">
+			<frame id="frame-end" pos="0 0" hidden="0" scale="0">
 				<frameinstance modelid="frame-endmatch" pos="0 0"/>
 			</frame>
 			<quad scriptevents="1" id="quad-discord" image="https://cdn.discordapp.com/attachments/922936935155105853/1195774589838569613/discord-logo-4-1.png?" pos="148 -30" z-index="0" size="10 10" bgcolor="FFFFFFFF" opacity="1" hidden="0"/>
@@ -585,7 +585,7 @@ Void SetML() {
             #Include "TextLib" as TL
             #Include "MathLib" as ML
 
-            #Const C_AttachId {{{dump(C_ChacalouRound_Team)}}}
+            #Const C_AttachId {{{dump(C_DuoClash)}}}
 
 			{{{dumptype(K_MapTeam)}}}
 
@@ -598,11 +598,9 @@ Void SetML() {
 				declare CMlLabel Player3 = (Frame_Global.GetFirstChild("player3") as CMlLabel);
 				declare CMlLabel TeamName = (Frame_Global.GetFirstChild("label-team") as CMlLabel);
 
-				if(Player1.Visible == False) {
-					Player1.Visible = True;
-					Player2.Visible = True;
-					TeamName.Visible = True;
-				}
+				Player1.Visible = True;
+				Player2.Visible = True;
+				TeamName.Visible = True;
 
 				Player3.Visible = False;
 	
@@ -622,12 +620,12 @@ Void SetML() {
 			declare CMlLabel TeamName = (Frame_Global.GetFirstChild("label-team") as CMlLabel);
 
 
-			if(Player1.Visible == False) {
-				Player1.Visible = True;
-				Player2.Visible = True;
-			}
 
+			Player1.Visible = True;
+			Player2.Visible = True;
 			Player3.Visible = True;
+
+			TeamName.Visible = True;
 
 			if (_Team.Player1CumulatedScore > _Team.Player2CumulatedScore && _Team.Player1CumulatedScore > _Team.LastPlayerCumulatedScore) {
 				Player1.Value = _Team.Player2CumulatedScore ^ " - " ^ _Team.Player1CumulatedScore;
@@ -712,13 +710,15 @@ Void SetML() {
 			if (_Floor == -1) return 0;
 			
 			declare netread Text[Text][] EndMatchPlayerScore for Teams[0] = [];
+			declare AdjustedFloor = _Floor;
 			if (EndMatchPlayerScore.count < 30 + _Floor && EndMatchPlayerScore.count >= 30) return _Floor - 1;
+			if (EndMatchPlayerScore.count < 30 && _Floor > 0) AdjustedFloor -= 1;
 			
 			declare CMlFrame Frame_Player <=> (Page.GetFirstChild("player-rankings") as CMlFrame);
 			log(EndMatchPlayerScore.count);
 
 			foreach (Key => Team in EndMatchPlayerScore) {
-				declare Integer KeyPlayer = Key + _Floor;
+				declare Integer KeyPlayer = Key + AdjustedFloor;
 				if (!Frame_Player.Controls.existskey(Key)) break;
 
 				declare CMlFrame Frame_ = Frame_Player.Controls[Key] as CMlFrame;
@@ -732,7 +732,7 @@ Void SetML() {
 				Label_Players_Position.Value = TL::ToText(KeyPlayer + 1) ^ "|";
 				Label_Players_Score.Value = EndMatchPlayerScore[KeyPlayer]["Score"];
 			}
-			return _Floor;
+			return AdjustedFloor;
 		}
 
 		Void UpdateRank() {
@@ -872,9 +872,9 @@ Void SetML() {
     </manialink>
     """;
 
-    Layers::Create(C_ChacalouRound_Team, Manialink);
-    Layers::SetType(C_ChacalouRound_Team, CUILayer::EUILayerType::Normal);
-    Layers::Attach(C_ChacalouRound_Team);
+    Layers::Create(C_DuoClash, Manialink);
+    Layers::SetType(C_DuoClash, CUILayer::EUILayerType::Normal);
+    Layers::Attach(C_DuoClash);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //

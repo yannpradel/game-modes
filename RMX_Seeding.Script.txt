@@ -20,11 +20,11 @@
 
 #Setting S_FinishTimeout 30 as _("Finish timeout")
 #Setting S_RoundsPerMap 1 as _("Number of rounds per track")
-#Setting S_MapsPerMatch 1 as _("Number of tracks per match")
+#Setting S_MapsPerMatch 4 as _("Number of tracks per match")
 
-#Setting S_WarmUpNb 1	as _("Number of warm up")
-//#Setting S_ScriptEnvironment "development"
+#Setting S_WarmUpNb 1 as _("Number of warm up")
 #Setting S_ScriptEnvironment "production"
+//#Setting S_ScriptEnvironment "production"
 
 #Const C_ModeName "RXM Seeding"
 #Const C_Callback_Teams_Serv1 "RMX_QualificationResultServer1"
@@ -38,6 +38,21 @@
 #Const C_CelebrateRecordGhost False
 #Const C_CelebrateRecordMedal False
 #Const C_DisplayWorldTop False
+#Const C_ML_RMX_Seeding "RMX_Seeding"
+
+
+#Const C_ImageURL_LocalRecords "https://i.imgur.com/bBvPZqP.png"
+#Const C_ImageURL_LiveRanking "https://i.imgur.com/hpCDItK.png"
+#Const C_ImageURL_FondLiveRanking "https://i.imgur.com/oL4cqyd.png"
+#Const C_ImageURL_NextPlayer "https://i.imgur.com/cQy8v1B.png"
+#Const C_ImageURL_FondTeams "https://i.imgur.com/ZjTEOoP.png"
+#Const C_ImageURL_TextTeams "https://i.imgur.com/MLedbii.png"
+#Const C_ImageURL_FondLapsCP "https://i.imgur.com/yvLxB66.png"
+#Const C_ImageURL_TextLaps "https://i.imgur.com/c161ASU.png"
+#Const C_ImageURL_TextCps "https://i.imgur.com/0l7ZYFL.png"
+#Const C_ImageURL_UpperImage "https://i.imgur.com/fUxP6xq.png"
+#Const C_ImageURL_FondLocalRecords "https://i.imgur.com/ViK5iOn.png"
+
 
 declare Boolean G_MatchStarted;
 
@@ -106,7 +121,7 @@ ModeInfo::SetStatusMessage("");
 
 ***Match_AfterLoadHud***
 ***
-log("Start AfterLoadHUD");
+
 ClientManiaAppUrl = C_ManiaAppUrl;
 UIModules_Checkpoint::SetVisibilityTimeDiff(False);
 UIModules_TimeGap::SetTimeGapMode(UIModules_TimeGap::C_TimeGapMode_CurRace);
@@ -131,12 +146,23 @@ UIManager.UIAll.LabelsVisibility_SkipMarkersOnly = True;
 Markers::EnablePlayersMarkers(True);
 Markers::SetDefaultMarker_Box(<0.,0.,0.>);
 RMXMarkers::Markers();
+
+SetMl();
 ***
 
 ***Match_InitServer***
 ***
 
 log("init Server");
+declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+Net_RMX_Seeding_Teams_Config = [];
+
+declare netwrite Integer Net_RMX_Seeding_Display_HUD for Teams[0] = 0;
+Net_RMX_Seeding_Display_HUD = -1;
+
+declare netwrite Integer Net_RMX_Teams_Picking_Updates for Teams[0] = 0;
+Net_RMX_Teams_Picking_Updates = 0;
+
 
 ***
 
@@ -166,6 +192,25 @@ GiveUpBehaviour_RespawnAfter = True;
 CarRank::Reset();
 ***
 
+***Match_Yield***
+***
+foreach (Event in PendingEvents) {
+	switch (Event.Type) {
+		// Initialize players when they join the server
+		case CSmModeEvent::EType::OnPlayerAdded: {
+			StateMgr::InitializePlayer(Event.Player);
+			CarRank::InitializePlayer(Event.Player);
+		}
+	}
+	declare netwrite Integer Net_RMX_Seeding_Ranking_Update for Teams[0] = 0;
+	Net_RMX_Seeding_Ranking_Update += 1;
+}
+
+
+
+StateMgr::Yield();
+***
+
 
 ***Match_StartMatch***
 ***
@@ -188,9 +233,18 @@ foreach (Player in Players) {
 //Race::EnableIntroDuringMatch(True);
 ***
 
+***Match_InitMap***
+***
+	declare netwrite Integer Net_RMX_Seeding_Display_HUD for Teams[0] = 0;
+***
+
+
 
 ***Match_StartMap***
 ***
+
+Net_RMX_Seeding_Display_HUD = -1;
+
 log("Start MapAHAHAHAHAHAH");
 StartTime = Now + Race::C_SpawnDuration;
 //Do warmup until config is loaded
@@ -200,7 +254,7 @@ if(!G_MatchStarted){
 	UIModules_ScoresTable::SetFooterInfo(_("Waiting for players"));
 	
 	Scores_ClearAll();
-	MB_WarmUp(1,60*60*1000,-1);
+	//MB_WarmUp(1,1,-1);
 
 	//skip and start match
 	G_MatchStarted = True;
@@ -209,20 +263,21 @@ if(!G_MatchStarted){
 	//sort scoreboard with default team config in order of registration
 	SetScoreboardDisplay();
 	SortScoreboard();
-	MB_SetValidMap(False);
+	MB_SetValidMap(False); 
 	MB_SetValidRound(False);
 	MB_StopMap();
 
 	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::ForcedVisible;
-	MB_Sleep(S_ChatTime*800);
+	//MB_Sleep(S_ChatTime*800);
 	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::Manual;
-	MB_Sleep(S_ChatTime*200);
+	//MB_Sleep(S_ChatTime*200);
 
 	if (S_ScriptEnvironment == "development") {
 		log("CreateFakeTeams");
 		RMXTeams::CreateFake();
 		EndTime = Now + 1000;
 	} else {
+		log("load Teams");
 		RMXTeams::LoadTeams();
 	}
 	
@@ -231,28 +286,67 @@ if(!G_MatchStarted){
 			EndTime = Now + 1000;
 		}
 	}
+
+	declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+	Net_RMX_Seeding_Teams_Config = RMXTeams::GetSortedByPoints();
+	
 }
 //else do real warm-up
 else{
+
 	SetScoreboardDisplay();
+	log("Start WarmUp");
+
 	//yeet to spectator non registered players
 	foreach(Score in Scores) {
 		if(!RMXTeams::IsRegistered(Score.User)){
 			ServerAdmin.ForceSpectator(Score.User,CServerAdmin::ESpecMode::SpectatorForced);
 		}
 	}
-	WarmUp::SetStartRoundMessage(_("Warmup: %1/%2"));
+	WarmUp::SetStartRoundMessage(_("Please choose your relay order !"));
 	UpdateScoresTableFooter(True);
-	MB_WarmUp(S_WarmUpNb, Map.TMObjective_AuthorTime * 2, -1);
+
+	UIManager.UIAll.SendChat("Numero du cirtcuit : " ^ MB_Private_GetValidMapCount());
+	if (MB_Private_GetValidMapCount() == 1) {
+		Net_RMX_Seeding_Display_HUD = 0;
+
+		UIManager.UIAll.SendChat("choisissez l'odre pitie !!");
+		foreach (Score in Scores) {
+			WarmUp::CanPlay(Score, False);
+		}
+		MB_WarmUp(1, 2000, -1);
+		Net_RMX_Seeding_Display_HUD = 1;
+		foreach (Score in Scores) {
+			WarmUp::CanPlay(Score, True);
+		}
+		MB_WarmUp(1, 15000, -1); //test wu
+	} else {
+		foreach (Score in Scores) {
+			WarmUp::CanPlay(Score, True);
+		}
+
+		declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+		Net_RMX_Seeding_Teams_Config = RMXTeams::GetSortedByPoints();
+
+		Net_RMX_Seeding_Display_HUD = 1;
+		MB_WarmUp(S_WarmUpNb, Map.TMObjective_AuthorTime * 2, -1);
+		Net_RMX_Seeding_Display_HUD = 1;
+
+
+	}
 }
-
-
 ***
+
 
 ***Match_StartWarmUpRound***
 ***
-log("Start WarmUpRound");
+log("Start WarmUpRound Test");
+declare netwrite Integer Net_RMX_Seeding_Ranking_Update for Teams[0] = 0;
+declare netwrite Integer Net_RMX_Seeding_Upper_Ranking_Update for Teams[0] = 0;
 
+
+Net_RMX_Seeding_Ranking_Update += 1;
+Net_RMX_Seeding_Upper_Ranking_Update += 1;
 ***
 
 ***Match_WarmUpLoop***
@@ -275,11 +369,76 @@ foreach (Event in RacePendingEvents) {
 					log("end warmup");
 					Scores::UpdatePlayerBestRaceIfBetter(Event.Player);
 					Scores::UpdatePlayerPrevRace(Event.Player);
+
+					declare Score <=> RMXTeams::GetScore(Event.Player.Login);
+					log(Scores::GetPlayerBestRaceTime(Score));
+
+					declare netwrite Integer Net_RMX_LocalMapRecords_Update for Teams[0] = 0;
+					Net_RMX_LocalMapRecords_Update += 1;
+					
 				}
 			}
 		}
 	}
 }
+
+//If the picker chose a player
+foreach(Event in UIManager.PendingEvents) {
+	if(Event.CustomEventType == "RMX_Order_Randomize") {
+		declare CSmPlayer Player = GetPlayer(Event.UI);
+		if(RMXTeams::IsRegistered(Player.User)){
+			declare RMXTeams::K_Team Team = RMXTeams::Get(Player.User);
+			RMXTeams::ShufflePlayers(Team);
+
+			declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+			Net_RMX_Seeding_Teams_Config = RMXTeams::Get();
+
+			declare netwrite Integer Net_RMX_Teams_Picking_Updates for Teams[0] = 0;
+			Net_RMX_Teams_Picking_Updates += 1;
+
+		}
+	}
+
+	if(Event.CustomEventType == "RMX_Order_ChangeOrder") {
+		declare CSmPlayer Player = GetPlayer(Event.UI);
+		if(RMXTeams::IsRegistered(Player.User)){
+			declare RMXTeams::K_Team Team = RMXTeams::Get(Player.User);
+			RMXTeams::ChangeOrder(Team,Player.User,TL::ToInteger(Event.CustomEventData[0]));
+
+			declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+			Net_RMX_Seeding_Teams_Config = RMXTeams::Get();
+
+			declare netwrite Integer Net_RMX_Teams_Picking_Updates for Teams[0] = 0;
+			Net_RMX_Teams_Picking_Updates += 1;
+
+		}
+		log("ChangeOrder");
+	}
+
+	if(Event.CustomEventType == "RMX_Order_Reset") {
+		declare CSmPlayer Player = GetPlayer(Event.UI);
+		if(RMXTeams::IsRegistered(Player.User)){
+			declare RMXTeams::K_Team Team = RMXTeams::Get(Player.User);
+			RMXTeams::NoDisplayPlayers(Team);
+
+			declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+			Net_RMX_Seeding_Teams_Config = RMXTeams::Get();
+
+			declare netwrite Integer Net_RMX_Teams_Picking_Updates for Teams[0] = 0;
+			Net_RMX_Teams_Picking_Updates += 1;
+
+		}
+	}
+}
+
+***
+
+***Match_InitRound***
+***
+declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0] = [];
+declare netwrite RMXTeams::K_Team[] Net_RMX_Seeding_Teams_Config_SortedPoints for Teams[0] = [];
+declare netwrite Integer Net_RMX_Seeding_Ranking_Update for Teams[0] = 0;
+declare netwrite Integer Net_RMX_Seeding_Upper_Ranking_Update for Teams[0] = 0;
 
 ***
 
@@ -296,7 +455,6 @@ RMXTeams::PrepareRound();
 //Start race for 1st player of each team
 StartTime = Now + Race::C_SpawnDuration;
 EndTime = -1;
-log(RMXTeams::Get());
 //yeet to spectator non registered players
 foreach(Score in Scores) {
 	if(!RMXTeams::IsRegistered(Score.User)){
@@ -308,6 +466,13 @@ foreach(Team in RMXTeams::Get()){
 	StartTeamPlayer(Team,0,StartTime);
 }
 declare FirstFinish = True;
+
+
+Net_RMX_Seeding_Teams_Config = RMXTeams::GetSortedByLapsAndCps();
+Net_RMX_Seeding_Teams_Config_SortedPoints = RMXTeams::GetSortedByPoints();
+
+Net_RMX_Seeding_Upper_Ranking_Update += 1;
+Net_RMX_Seeding_Ranking_Update += 1;
 ***
 
 ***Match_PlayLoop***
@@ -317,20 +482,42 @@ foreach (Event in RacePendingEvents) {
 	if (Event.Player != Null) {
 		switch(Event.Type){
 			case Events::C_Type_StartLine:{
-				if (S_ScriptEnvironment == "development"){
+				UIManager.UIAll.SendChat("StartLine");
 					Event.Player.TrustClientSimu = False;
+					if(RMXTeams::IsRegistered(Event.Player.User)){
+						declare Team = RMXTeams::Get(Event.Player.User);
+						declare PlayerIndex = RMXTeams::GetIndex(Event.Player.User);
+						foreach (Player in Team.Players) {
+							declare CSmPlayer RealPlayer = GetPlayer(Player.Login);
+							   if (RealPlayer == Null) continue;
+
+							declare CUIConfig UI <=> UIManager.GetUI(RealPlayer);
+							if (UI == Null) return;
+
+							declare netwrite Text Net_RMX_NextPlayer_Player for UI = "";
+							if (PlayerIndex+1 < 3){
+								declare CSmPlayer NextPlayer = GetPlayer(Team.Players[PlayerIndex+1].Login);
+							   		if (RealPlayer == Null) continue;
+								Net_RMX_NextPlayer_Player = NextPlayer.User.Name; //on update les clients seulement pour les joueurs de lequipe
+							}
+							else Net_RMX_NextPlayer_Player = "---"; //on update les clients seulement pour les joueurs de lequipe
+
+							
+						}
+					}
 					//SetPlayerVehicle_ControlledByMode(Event.Player, True);
 					//SetPlayerVehicle_Accelerate(Event.Player, True);
 					//SetPlayerVehicle_TargetSpeedValue(Event.Player, ML::Rand(230.,250.));
-				}
+				
 			}
-			case Events::C_Type_Waypoint:{
+			case Events::C_Type_Waypoint:{		
 				if (Event.IsEndRace) {
 					if(RMXTeams::IsRegistered(Event.Player.User)){
 						Scores::UpdatePlayerPrevRace(Event.Player);
 						declare Team = RMXTeams::Get(Event.Player.User);
 						declare PlayerIndex = RMXTeams::GetIndex(Event.Player.User);
 						declare TeamTime = RMXTeams::SetFinishedAndAddTime(Event.Player.User);
+						RMXTeams::AddLapsTeams(Event.Player.User);
 						if(RMXTeams::IsLastPlayer(Event.Player.User)){
 							Race::StopSkipScoresTable(Event.Player);
 							// Start the countdown if it's the first player to finish
@@ -340,9 +527,22 @@ foreach (Event in RacePendingEvents) {
 						}else{
 							Race::StopSkipOutro(Event.Player);
 							StartTeamPlayer(Team,PlayerIndex+1,StartTime + TeamTime + (Race::C_SpawnDuration*(PlayerIndex+1)));
+
 						}
+
+						declare netwrite Integer Net_RMX_LocalMapRecords_Update for Teams[0] = 0;
+						Net_RMX_LocalMapRecords_Update += 1;
 					}
+					
 				}
+				if(RMXTeams::IsRegistered(Event.Player.User)){
+					Scores::UpdatePlayerPrevRace(Event.Player);
+					RMXTeams::AddCheckpointsTeams(Event.Player.User);
+				}
+
+				declare netwrite Integer Net_RMX_Seeding_Ranking_Update for Teams[0] = 0;
+				Net_RMX_Seeding_Teams_Config = RMXTeams::GetSortedByLapsAndCps();
+				Net_RMX_Seeding_Ranking_Update += 1;
 			}
 		}
 	}
@@ -404,6 +604,9 @@ if(MB_Private_SectionValid_Round){
 			I += 1;
 		}
 	}
+
+	Net_RMX_Seeding_Teams_Config_SortedPoints = RMXTeams::GetSortedByPoints();
+	Net_RMX_Seeding_Upper_Ranking_Update += 1;
 	
 	UIManager.UIAll.ScoreTableVisibility = CUIConfig::EVisibility::ForcedVisible;
 	MB_Sleep(S_ChatTime*800);
@@ -503,6 +706,703 @@ if(MB_Private_SectionValid_Match){
 	MB_Private_SectionValid_Turn = True;
 }
 ***
+
+Void SetMl() {
+
+	declare Text MLText = """
+	<manialink version="3" name="RMX_Seeding">
+		<framemodel id="model-local-records">
+			<quad pos="14 5" z-index="0" size="196 24" opacity="1" image="{{{C_ImageURL_LocalRecords}}}" scale=".2"/>
+			<quad pos="-0.4 0" z-index="0" size="0.5 49.2" bgcolor="FF6C00" opacity="1"/>
+			<quad pos="0 0" z-index="0" size="272 246" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_FondLocalRecords}}}" scale=".2"/>
+			<quad id="quad-bg-locs-separator" pos="4 -31.3" z-index="0" size="47 0.2" bgcolor="FF6C00" opacity="1" hidden="1"/>
+			<frame id="frame-liveranking-team">
+				<frameinstance pos="7 -2" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -7" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -12" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -17" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -22" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -27" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -32" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -37" modelid="model-team-ranks"/>
+				<frameinstance pos="7 -42" modelid="model-team-ranks"/>
+			</frame>
+		</framemodel>
+		<framemodel id="model-live-ranking">
+			<quad pos="19.6 5" z-index="0" size="167 24" opacity="1" image="{{{C_ImageURL_LiveRanking}}}" scale=".2"/>
+			<quad pos="0 0" z-index="0" size="272 189.6" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_FondLiveRanking}}}" scale=".2"/>
+			<quad pos="-0.4 0" z-index="0" size="0.5 38" bgcolor="FF6C00" opacity="1"/>
+			<quad id="quad-bg-points-separator" pos="4 -21.5" z-index="0" size="46.5 0.2" bgcolor="FF6C00" opacity="1" hidden="1"/>
+			<frame id="frame-liveranking-team">
+				<frameinstance pos="7 -2" modelid="model-team-ranking"/>
+				<frameinstance pos="7 -7" modelid="model-team-ranking"/>
+				<frameinstance pos="7 -12" modelid="model-team-ranking"/>
+				<frameinstance pos="7 -17" modelid="model-team-ranking"/>
+				<frameinstance pos="7 -22" modelid="model-team-ranking"/>
+				<frameinstance pos="7 -27" modelid="model-team-ranking"/>
+				<frameinstance pos="7 -32" modelid="model-team-ranking"/>
+			</frame>
+		</framemodel>
+		<framemodel id="model-team-ranks">
+			<label id="label-players-position" pos="0 0" z-index="0" size="20 5" textcolor="ffffffff" text="" textfont="RajdhaniMono"  halign="right" opacity="1" textsize="2.5"/>
+			<label id="label-players-name" pos="1 0" z-index="0" size="31 4.2" textcolor="ffffffff" text="" textsize="2.5" textfont="RajdhaniMono" opacity=".85" halign="left"/>
+			<label id="label-team-first-attribute" pos="45 0" z-index="0" size="20 5" text="" textfont="RajdhaniMono"  halign="right" opacity=".85" textsize="2.5"/>
+		</framemodel>
+		<framemodel id="model-team-ranking">
+			<label id="label-players-position" pos="0 0" z-index="0" size="20 5" textcolor="ffffffff" text="" textfont="RajdhaniMono"  halign="right" opacity="1" textsize="2.5"/>
+			<label id="label-players-name" pos="1 0" z-index="0" size="31 4.2" textcolor="ffffffff" text="" textsize="2.5" textfont="RajdhaniMono" opacity=".85" halign="left"/>
+			<label id="label-team-first-attribute" pos="45 0" z-index="0" size="20 5" text="" textfont="RajdhaniMono"  halign="right" opacity=".85" textsize="2.5"/>
+		</framemodel>
+		<framemodel id="model-teams-ranks">
+
+				<label id="label-players-position" pos="-1 0" z-index="0" size="20 5" textcolor="777777" text="" textfont="RajdhaniMono"  halign="right" opacity="1" textsize="2.5"/>
+				<label id="label-players-name" pos="0 0" z-index="0" size="31 4.2" textcolor="333333" text="" textsize="2.5" textfont="RajdhaniMono" opacity=".85" halign="left"/>
+				<label id="label-team-first-attribute" pos="39.45 0" z-index="0" size="20 5" text="" textfont="RajdhaniMono"  halign="right" opacity="1" textsize="2.5"/>
+				<label id="label-team-second-attribute" pos="48.5 0" z-index="0" size="20 5" text="" textfont="RajdhaniMono"  halign="right" opacity=".75" textsize="2.5"/>
+
+			<quad pos="-2 1.28" z-index="0" size="6 .18" bgcolor="FF6c00" opacity="1"/>
+		</framemodel>
+		<framemodel id="model-teams-up">
+			<frame id="frame-player-attributes">
+				<label id="label-players-tagpoints" pos="21 -3" z-index="0" size="20 5" textcolor="FFFFFFFF" text="---  0" textfont="RajdhaniMono"  halign="right" opacity="1" textsize="2.8"/>
+				<label id="label-players-pts" pos="25.6 -4.3" z-index="0" size="31 4.2" textcolor="FFFFFFFF" text="PTS" textsize="1" textfont="RajdhaniMono" opacity="1" halign="right"/>
+				</frame>
+			<quad pos="32 -2.8" z-index="0" size=".2 4" bgcolor="FF6c00" opacity="1"/>
+		</framemodel>
+		<framemodel id="model-next-player">
+			<quad pos="3 0" z-index="0" size="121 15" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_NextPlayer}}}" scale=".18"/>
+			<quad pos="0 -3.5" z-index="0" size="36 9" bgcolor="000" opacity="0.3"/>
+			<label id="label-next-player" pos="3 -5.8" z-index="0" size="30 5" text="" textfont="RajdhaniMono"/>
+		</framemodel>
+		<framemodel id="model-select-order">
+			<quad pos="0 0" z-index="0" size="134 33" bgcolor="FFF" opacity="0.5"/>
+			<label pos="67 -3.3" z-index="0" size="100 5" text="SELECT PLAYING ORDER" textfont="RajdhaniMono" textcolor="FF6c00" halign="center" textsize="3.5"/>
+			<quad id="quad-order-first" scriptevents="1" pos="4.5 -11.5" z-index="0" size="38 10" bgcolor="000" opacity="1"/>
+			<quad id="quad-order-second" scriptevents="1" pos="46.5 -11.5" z-index="0" size="39 10" bgcolor="000" opacity="1"/>
+			<quad id="quad-order-third" scriptevents="1" pos="90.5 -11.5" z-index="0" size="39 10" bgcolor="000" opacity="1"/>
+			<quad id="quad-order-reset" scriptevents="1" pos="23 -24" z-index="0" size="27 6" bgcolor="AF1415" opacity="1"/>
+			<quad id="quad-order-randomize" scriptevents="1" pos="53 -24" z-index="0" size="27 6" bgcolor="FF7301" opacity="1"/>
+			<quad id="quad-order-apply" scriptevents="1" pos="83 -24" z-index="0" size="27 6" bgcolor="2E7624" opacity="1"/>
+			<label id="label-order-reset" pos="32.2 -25.36" z-index="0" size="20 5" text="RESET" textfont="RajdhaniMono" textsize="1.5"/>
+			<label id="label-order-randomize" pos="58 -25.36" z-index="0" size="20 5" text="RANDOMISE" textfont="RajdhaniMono" textsize="1.5"/>
+			<label id="label-order-apply" pos="91.9 -25.36" z-index="0" size="20 5" text="APPLY" textfont="RajdhaniMono" textsize="1.5"/>
+			<label id="label-order-first" pos="24 -14.2" halign="center" z-index="0" size="38 5" text="PLAY FIRST" textfont="RajdhaniMono"/>
+			<label id="label-order-second" pos="66 -14.2" halign="center" z-index="0" size="38 5" text="PLAY SECOND" textfont="RajdhaniMono"/>
+			<label id="label-order-third" pos="110 -14.2" halign="center" z-index="0" size="38 5" text="PLAY THIRD" textfont="RajdhaniMono"/>
+		</framemodel>
+		<framemodel id="model-teams-ranking">
+			<frame id="frame-teams-ranks">
+				<frameinstance modelid="model-teams-ranks" pos="6 -10" z-index="2"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -15.8" z-index="2"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -21.6" z-index="1"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -27.4" z-index="1"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -33.2" z-index="1"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -39" z-index="1"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -44.8" z-index="1"/>
+				<frameinstance modelid="model-teams-ranks" pos="6 -50.6" z-index="1"/>
+			</frame>
+			<quad id="quad-bg-teams-separator" pos="4 -37.7" z-index="0" size="28 0.2" bgcolor="FF6C00" opacity="1" hidden="1"/>
+			<quad pos="0 0" z-index="0" size="214 52" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_FondTeams}}}" scale=".17"/>
+			<quad pos="9.6 -2.3" z-index="0" size="99 23" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_TextTeams}}}"  scale=".17"/>
+			<frame id="frame-teams-hideable" hidden="0">
+				<quad pos="36.5 -8.2" z-index="0" size="20 48.1" bgcolor="FFF" opacity=".5" image="{{{C_ImageURL_FondLapsCP}}}"/>
+				<quad pos="38 -4.4" z-index="0" size="49 15" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_TextLaps}}}" scale=".15"/>
+				<quad pos="48.5 -4.4" z-index="0" size="37 15" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_TextCps}}}" scale=".15"/>
+				<quad pos="36.5 -8" z-index="0" size="20 1.2" bgcolor="D06311FF" opacity="1"/>
+			</frame>
+			<quad pos="0 -8" z-index="0" size="36.5 1.2" bgcolor="FF6c00" opacity="1"/>
+			<quad pos="0 -9.2" z-index="-1" size="36.5 47" bgcolor="FFF" opacity="1"/>
+			<quad id="quad-arrow-display" pos="36.4 0.1" z-index="0" size="4 4" bgcolor="FFF" opacity="1" style="SliderVolume" substyle="DoubleArrowLeftSlim_light" scriptevents="1"/>
+		</framemodel>
+		<framemodel id="model-upper-ranking">
+			<quad pos="0 0" z-index="0" size="1193 55" bgcolor="FFF" opacity="1" image="{{{C_ImageURL_UpperImage}}}" scale=".16"/>
+			<quad pos="0 -8.9" z-index="0" size="190.88 .8" bgcolor="FFF" opacity="1"/>
+			<quad pos="0 0" z-index="0" size=".8 9.7" bgcolor="FF6c00" opacity="1"/>
+			<frame id="frame-teams-ranks">
+				<frameinstance modelid="model-teams-up"/>
+				<frameinstance modelid="model-teams-up"  pos="32"/>
+				<frameinstance modelid="model-teams-up"  pos="64"/>
+				<frameinstance modelid="model-teams-up"  pos="96"/>
+				<frameinstance modelid="model-teams-up"  pos="128"/>
+				<frameinstance modelid="model-teams-up"  pos="160"/>
+			</frame>
+		</framemodel>
+		<frame id="frame-global" pos="0 0" hidden="1" >
+			<frameinstance id="frame-local-records" modelid="model-local-records" pos="105.5 53"/>
+			<frameinstance id="frame-live-ranking" modelid="model-live-ranking" pos="105.5 -30"/>
+			<frameinstance id="frame-next-player" modelid="model-next-player" pos="-160 50"/>
+			<frameinstance id="frame-upper-ranking" modelid="model-upper-ranking" pos="-95.5 90"/>
+			<frameinstance id="frame-teams-rankings" modelid="model-teams-ranking" pos="-160 10"/>
+		</frame>
+		<frameinstance id="frame-select-order" modelid="model-select-order" pos="-68 33" hidden="1"/>
+		
+
+	<script><!--
+
+		#Include "TextLib" as TL
+		#Include "MathLib" as ML
+
+		
+
+		#Const C_AttachId {{{dump(C_ML_RMX_Seeding)}}}
+		#Const C_MaxLocalRecordsNumberOfLines 9
+		#Const C_MaxTeamsRankingNumberOfLines 8
+		#Const C_MaxLiveRankingNumberOfLines 7
+		#Const C_MaxNumberBefore 1
+		#Const C_MaxNumberAfter 1
+	
+		{{{dumptype(RMXTeams::K_Player)}}}
+		{{{dumptype(RMXTeams::K_Team)}}}
+		{{{dumptype(RMXTeams::K_Config)}}}
+
+		Integer GetTeamNbFinish(K_Team _Team){
+			declare Ret = 0;
+			foreach(Player in _Team.Players){
+				if(Player.Finished) Ret += 1;
+			}
+			return Ret;
+		}
+
+		Boolean IsRegistered(CUser _User){
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+
+			foreach(I => Team in Net_RMX_Seeding_Teams_Config){
+				foreach(J => Player in Team.Players){
+					if(Player.Login == _User.Login){
+						return True;
+					}
+				}
+			}
+			return False;
+		}
+
+		Integer GetPlayerPrevRaceTime(CSmScore _Score) {
+			if (_Score == Null || _Score.PrevRaceTimes.count <= 0) return -1;
+			return _Score.PrevRaceTimes[_Score.PrevRaceTimes.count-1];
+		}
+
+		Text[Text] SortScoresByTime() {
+			declare Integer[Text] LocalRecords = [];
+			foreach (Score in Scores) {
+				if (GetPlayerPrevRaceTime(Score) > 0) {
+				LocalRecords[Score.User.Name] = GetPlayerPrevRaceTime(Score);
+				}
+			}
+
+			LocalRecords = LocalRecords.sort();
+
+			declare Text[Text] TextLocalRecords;
+
+			foreach (Key => Value in LocalRecords) {
+				TextLocalRecords[Key] = TL::ToText(Value);
+			}
+
+			return TextLocalRecords;
+		}
+
+
+		
+		
+		K_Team GetTeamFromUser(CUser _User){
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+
+			foreach(I => Team in Net_RMX_Seeding_Teams_Config){
+				foreach(J => Player in Team.Players){
+					if(Player.Login == _User.Login){
+						return Team;
+					}
+				}
+			}
+			return K_Team{};
+		}
+
+		K_Team GetTeamFromTeamName(Text _TeamName){
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+
+			foreach(I => Team in Net_RMX_Seeding_Teams_Config){
+				if(Team.Name == _TeamName){
+					return Team;
+				}
+			}
+			return K_Team{};
+		}
+
+
+		Void UpdateRankingPlayer(CMlControl _Control_Player, Text[] _PlayerState, Integer _Index) {
+
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+
+			declare CMlFrame Frame_Player <=> (_Control_Player as CMlFrame);
+			declare CMlLabel Label_Player_Position <=> (Frame_Player.GetFirstChild("label-players-position") as CMlLabel);
+			declare CMlLabel Label_Team_Name <=> (Frame_Player.GetFirstChild("label-players-name") as CMlLabel);
+			declare CMlLabel Label_Team_FirstAtt <=> (Frame_Player.GetFirstChild("label-team-first-attribute") as CMlLabel);
+
+
+			//laps et cp
+			if (TL::Find(",", _PlayerState[1], True, True)) {
+				declare Text[] TeamCP = TL::Split(",", _PlayerState[1]);
+				declare CMlLabel Label_Team_Cps <=> (Frame_Player.GetFirstChild("label-team-second-attribute") as CMlLabel);
+
+				if (GUIPlayer != Null && IsRegistered(GUIPlayer.User)) {
+					declare GUITeam = GetTeamFromUser(GUIPlayer.User);
+					declare Team = GetTeamFromTeamName(_PlayerState[0]);
+					if (GetTeamNbFinish(Team) < 3) { //team not finished
+
+						Label_Player_Position.Value = TL::ToText(_Index);
+						Label_Team_Name.Value = _PlayerState[0];
+						Label_Team_FirstAtt.Value = TeamCP[0]; //Laps
+						Label_Team_Cps.Value = TeamCP[1];
+
+					} else
+					if (Label_Team_FirstAtt.Value != "") { 
+						Label_Player_Position.Value = TL::ToText(_Index);
+						Label_Team_Name.Value = Team.Name;
+						Label_Team_FirstAtt.Value = "";
+						Label_Team_Cps.Value = "$f00Finished";
+						Label_Team_Cps.TextSizeReal = 2.;
+						Label_Team_Cps.Opacity = 0.;
+						Label_Team_Cps.RelativePosition_V3.X = 45.;
+
+						AnimMgr.Flush(Label_Team_Cps);
+						AnimMgr.Add(Label_Team_Cps, "<a pos=\"48.75 0.\" opacity=.9/>", 600, CAnimManager::EAnimManagerEasing::QuadInOut);
+					}
+					
+					if (GUITeam.Name == Label_Team_Name.Value) {
+						Label_Team_Name.TextColor = <.8,.0,.0>;
+					}
+					else {
+						Label_Team_Name.TextColor = <.2,.2,.2>;
+					}
+
+					
+				}
+
+			} else if (TL::EndsWith(":",_PlayerState[1])) {
+				declare Text TeamPoints = TL::SubText(_PlayerState[1], 0, TL::Length(_PlayerState[1]) - 1);
+				Label_Player_Position.Value = TL::ToText(_Index);
+				Label_Team_FirstAtt.Value = TeamPoints;
+				Label_Team_Name.Value = _PlayerState[0];
+			}
+			else {
+				declare CMlLabel Label_Player_Time <=> (Frame_Player.GetFirstChild("label-players-time") as CMlLabel);
+
+				Label_Player_Position.Value = TL::ToText(_Index);
+				Label_Team_Name.Value = _PlayerState[0];
+				Label_Team_FirstAtt.Value = TL::TimeToText(TL::ToInteger(_PlayerState[1]),True,True); //time
+			} 
+		}
+
+		Void UpdateSpecificRanking(Text _TypeOfRanking) {
+			declare Text[Text] RankingRecords;
+			declare Integer MaxNumberOfLines = C_MaxLocalRecordsNumberOfLines;
+			declare Text CompareData = InputPlayer.Score.User.Name;
+			//log("UpdateLocalRecords");
+			
+
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+			declare CMlFrame Frame_LocalRecords <=> (Frame_Global.GetFirstChild("frame-local-records") as CMlFrame);
+			declare CMlFrame Frame_Ranking <=> (Frame_LocalRecords.GetFirstChild("frame-liveranking-team") as CMlFrame);
+
+			if (_TypeOfRanking == "LocalRecords") {
+				declare Text[Text] LocalRecords;
+
+				Frame_LocalRecords <=> (Frame_Global.GetFirstChild("frame-local-records") as CMlFrame);
+				Frame_Ranking <=> (Frame_LocalRecords.GetFirstChild("frame-liveranking-team") as CMlFrame);
+
+				LocalRecords = SortScoresByTime();
+				RankingRecords = LocalRecords;
+
+				MaxNumberOfLines = C_MaxLocalRecordsNumberOfLines;
+			}
+
+			if (_TypeOfRanking == "TeamsRanking") {
+				declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+				declare Text[Text] TeamRankingRecords;
+
+				declare CMlFrame Frame_TeamsRanking <=> (Frame_Global.GetFirstChild("frame-teams-rankings") as CMlFrame);
+				Frame_Ranking <=> (Frame_TeamsRanking.GetFirstChild("frame-teams-ranks") as CMlFrame);
+
+				foreach (Key => Team in Net_RMX_Seeding_Teams_Config) {
+					TeamRankingRecords[Team.Name] = TL::ToText(Team.Laps) ^ "," ^ TL::ToText(Team.Checkpoints);
+				}
+
+				RankingRecords = TeamRankingRecords;
+				MaxNumberOfLines = C_MaxTeamsRankingNumberOfLines;
+				
+				declare K_Team Team;
+				if (GUIPlayer != Null && IsRegistered(GUIPlayer.User)) {
+					Team = GetTeamFromUser(GUIPlayer.User);
+					CompareData = Team.Name;
+				}
+			}
+
+			if (_TypeOfRanking == "LiveRanking") {
+				declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+				declare Text[Text] LiveRankingRecords;
+
+				declare CMlFrame Frame_LiveRanking <=> (Frame_Global.GetFirstChild("frame-live-ranking") as CMlFrame);
+				Frame_Ranking <=> (Frame_LiveRanking.GetFirstChild("frame-liveranking-team") as CMlFrame);
+
+				foreach (Key => Team in Net_RMX_Seeding_Teams_Config) {
+					LiveRankingRecords[Team.Name] = TL::ToText(Team.Score) ^ ":";
+				}
+
+				RankingRecords = LiveRankingRecords;
+				MaxNumberOfLines = C_MaxLiveRankingNumberOfLines;
+
+				declare K_Team Team;
+				if (GUIPlayer != Null && IsRegistered(GUIPlayer.User)) {
+					Team = GetTeamFromUser(GUIPlayer.User);
+					CompareData = Team.Name;
+				}
+			}
+
+			declare Integer Index = 0;
+            declare Integer NumberOfLinesUpdated;
+            declare Integer NumberOfLinesInTheTop = MaxNumberOfLines - (C_MaxNumberBefore + C_MaxNumberAfter + 1);
+            declare CSmPlayer FirstPlayer;
+			declare Text[][] BeforePlayers; // List of the C_MaxNumberBefore + C_MaxNumberAfter N players before GUIPlayer
+            declare Boolean GUIPlayerIsPassed = False;
+			declare Boolean SeparatorIsNeeded;
+			
+			declare Integer RecordsIndex = 0;
+
+			foreach (PlayerLogin => PlayerValue in RankingRecords) {
+				RecordsIndex += 1;
+				declare Text[] PlayerState = [PlayerLogin, PlayerValue];
+
+
+				// Define if need to display
+				if (NumberOfLinesUpdated < MaxNumberOfLines) {
+
+					if (NumberOfLinesInTheTop > NumberOfLinesUpdated || InputPlayer == Null || GUIPlayerIsPassed ||(!RankingRecords.existskey(CompareData))) {
+						UpdateRankingPlayer(Frame_Ranking.Controls[NumberOfLinesUpdated], PlayerState, RecordsIndex);
+						NumberOfLinesUpdated += 1;
+						if (GUIPlayer != Null && PlayerState[0] == CompareData) GUIPlayerIsPassed = True;
+					} else {
+						if (PlayerState[0] == CompareData) {
+							declare Integer IndexOffset;
+							while (BeforePlayers.count > C_MaxNumberBefore && RecordsIndex + IndexOffset + C_MaxNumberAfter <= RankingRecords.count - 1) {
+								BeforePlayers = BeforePlayers.slice(1);
+								IndexOffset += 1;
+							}
+							while (BeforePlayers.count > 0) {
+								RecordsIndex += 1;
+								UpdateRankingPlayer(Frame_Ranking.Controls[NumberOfLinesUpdated], BeforePlayers[0], RecordsIndex);
+								NumberOfLinesUpdated += 1;
+								BeforePlayers = BeforePlayers.slice(1);
+							}
+							RecordsIndex += 1;
+							UpdateRankingPlayer(Frame_Ranking.Controls[NumberOfLinesUpdated], PlayerState, RecordsIndex);
+							NumberOfLinesUpdated += 1;
+							GUIPlayerIsPassed = True;
+
+							if (RecordsIndex > NumberOfLinesInTheTop + C_MaxNumberBefore) SeparatorIsNeeded = True;
+
+						} else {
+							BeforePlayers.add(PlayerState);
+							if (BeforePlayers.count > C_MaxNumberBefore + C_MaxNumberAfter) {
+								BeforePlayers = BeforePlayers.slice(1);
+							}
+						}
+					}
+				}
+			}
+			if (_TypeOfRanking == "TeamsRanking") {
+				declare CMlQuad Quad_Bg_Separator <=> (Page.GetFirstChild("quad-bg-teams-separator") as CMlQuad);
+				Quad_Bg_Separator.Visible = SeparatorIsNeeded;	
+			}
+			else if (_TypeOfRanking == "LiveRanking") {
+				declare CMlQuad Quad_Bg_Separator <=> (Page.GetFirstChild("quad-bg-points-separator") as CMlQuad);
+				Quad_Bg_Separator.Visible = SeparatorIsNeeded;	
+			} 
+			else if (_TypeOfRanking == "LocalRecords") {
+				declare CMlQuad Quad_Bg_Separator <=> (Page.GetFirstChild("quad-bg-locs-separator") as CMlQuad);
+				Quad_Bg_Separator.Visible = SeparatorIsNeeded;	
+			}
+
+		}
+
+		Void UpdatePointsRanking() {
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config_SortedPoints for Teams[0];
+
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+
+			declare CMlFrame Frame_UpperRanking <=> (Frame_Global.GetFirstChild("frame-upper-ranking") as CMlFrame);
+			declare CMlFrame Frame_TeamsRanking_Teams <=> (Frame_UpperRanking.GetFirstChild("frame-teams-ranks") as CMlFrame);
+
+			declare CMlFrame Frame_LiveRanking <=> (Frame_Global.GetFirstChild("frame-live-ranking") as CMlFrame);
+			declare CMlFrame Frame_TeamsLiveRanking_Teams <=> (Frame_LiveRanking.GetFirstChild("frame-liveranking-team") as CMlFrame);
+
+			//teams upper panel
+			foreach (Key => Control in Frame_TeamsRanking_Teams.Controls) {
+				if (!Net_RMX_Seeding_Teams_Config_SortedPoints.existskey(Key)) break;
+
+				declare CMlFrame Frame <=> (Control as CMlFrame);
+				declare CMlFrame Frame_Player_Attr <=> (Frame.GetFirstChild("frame-player-attributes") as CMlFrame);
+
+				declare CMlLabel Label_Player_TagPoints <=> (Frame_Player_Attr.GetFirstChild("label-players-tagpoints") as CMlLabel);
+				Label_Player_TagPoints.Value = Net_RMX_Seeding_Teams_Config_SortedPoints[Key].Trigram ^ "  " ^ TL::ToText(Net_RMX_Seeding_Teams_Config_SortedPoints[Key].Score);
+			}
+
+			/*teams right panel live rankings
+			foreach (Key => Control in Frame_TeamsLiveRanking_Teams.Controls) {
+				if (!Net_RMX_Seeding_Teams_Config_SortedPoints.existskey(Key)) break;
+				declare CMlFrame Frame <=> (Control as CMlFrame);
+
+				declare CMlLabel Label_Player_Position <=> (Frame.GetFirstChild("label-players-position") as CMlLabel);
+				declare CMlLabel Label_Team_Name <=> (Frame.GetFirstChild("label-players-name") as CMlLabel);
+				declare CMlLabel Label_Player_Points <=> (Frame.GetFirstChild("label-team-first-attribute") as CMlLabel);
+
+				Label_Player_Position.Value = TL::ToText(Key + 1);
+				Label_Team_Name.Value = Net_RMX_Seeding_Teams_Config_SortedPoints[Key].Name;
+				Label_Player_Points.Value = TL::ToText(Net_RMX_Seeding_Teams_Config_SortedPoints[Key].Score) ^ "pts";
+
+
+				if (GUIPlayer != Null && IsRegistered(GUIPlayer.User)) {
+					declare Team = GetTeamFromUser(GUIPlayer.User);
+					log("searching " ^ Label_Team_Name.Value ^ " " ^ Team.Name);
+
+					if (Team.Name == Label_Team_Name.Value) {
+						Label_Team_Name.TextColor = <.0,.0,.0>;
+						Label_Player_Position.TextColor = <.0,.0,.0>;
+						Label_Player_Points.TextColor = <.0,.0,.0>;
+					}
+					else {
+						Label_Team_Name.TextColor = <1.,1.,1.>;
+						Label_Player_Position.TextColor = <1.,1.,1.>;
+						Label_Player_Points.TextColor = <1.,1.,1.>;
+					}
+				}
+			}*/
+		}
+
+		Void UpdateRankings() {
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+			if(Net_RMX_Seeding_Teams_Config == []) return;
+
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+			declare CMlFrame Frame_LocalRecords <=> (Frame_Global.GetFirstChild("test") as CMlFrame);
+			declare CMlFrame Frame_LiveRanking <=> (Frame_Global.GetFirstChild("model-live-ranking") as CMlFrame);
+			declare CMlFrame Frame_TeamsRanking <=> (Frame_Global.GetFirstChild("frame-teams-rankings") as CMlFrame);
+			declare CMlFrame Frame_UpperRanking <=> (Frame_Global.GetFirstChild("frame-upper-ranking") as CMlFrame);
+			declare CMlFrame Frame_NextPlayer <=> (Frame_Global.GetFirstChild("frame-next-player") as CMlFrame);
+
+			UpdateSpecificRanking("TeamsRanking");
+			//UpdateTeamsRanking(Frame_TeamsRanking);
+		}
+
+		Void DynaMLSetup() {
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+
+			declare CMlFrame Frame_TeamsRanking <=> (Frame_Global.GetFirstChild("frame-teams-rankings") as CMlFrame);
+			declare CMlFrame Frame_TeamsRanking_Teams <=> (Frame_TeamsRanking.GetFirstChild("frame-teams-ranks") as CMlFrame);
+
+			foreach (Key => Control in Frame_TeamsRanking_Teams.Controls) {
+				if (Key > 2) break;
+				declare CMlFrame Frame <=> (Control as CMlFrame);
+
+				declare CMlLabel Label_Player_Position <=> (Frame.GetFirstChild("label-players-position") as CMlLabel);
+
+				if (Key == 0) Label_Player_Position.TextColor = <0.,0.,0.>;
+				if (Key == 1) Label_Player_Position.TextColor = <.15,.15,.15>;
+				if (Key == 2) Label_Player_Position.TextColor = <.30,.30,.30>;
+			}
+		}
+
+		Void HideTeamsLapsCps(Boolean _Hide) {
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+			declare CMlFrame Frame_TeamsRanking <=> (Frame_Global.GetFirstChild("frame-teams-rankings") as CMlFrame);
+			declare CMlFrame Frame_TeamsRanking_Teams <=> (Frame_TeamsRanking.GetFirstChild("frame-teams-ranks") as CMlFrame);
+
+			foreach (Key => Control in Frame_TeamsRanking_Teams.Controls) {
+				declare CMlFrame Frame <=> (Control as CMlFrame);
+
+				declare CMlLabel Label_Team_Laps <=> (Frame.GetFirstChild("label-team-first-attribute") as CMlLabel);
+				declare CMlLabel Label_Team_Cps <=> (Frame.GetFirstChild("label-team-second-attribute") as CMlLabel);
+
+				Label_Team_Laps.Visible = !_Hide;
+				Label_Team_Cps.Visible = !_Hide;
+			}
+		}
+
+		Void UpdatePickerMenu() {
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+			if(Net_RMX_Seeding_Teams_Config == []) return;
+
+			declare CMlFrame Frame_SelectOrder <=> (Page.GetFirstChild("frame-select-order") as CMlFrame);
+
+			declare CMlLabel Label_First <=> (Frame_SelectOrder.GetFirstChild("label-order-first") as CMlLabel);
+			declare CMlLabel Label_Second <=> (Frame_SelectOrder.GetFirstChild("label-order-second") as CMlLabel);
+			declare CMlLabel Label_Third <=> (Frame_SelectOrder.GetFirstChild("label-order-third") as CMlLabel);
+
+			foreach (Key => Team in Net_RMX_Seeding_Teams_Config) {
+				if (InputPlayer != Null && IsRegistered(InputPlayer.User)) {
+					declare Team = GetTeamFromUser(InputPlayer.User);
+					log("Team " ^ Team.Name ^ " " ^ Team.Players[0].Login ^ " " ^ Team.Players[1].Login ^ " " ^ Team.Players[2].Login);
+					log("Team " ^ Team.Players[0].IsDisplayed ^ " " ^ Team.Players[1].IsDisplayed ^ " " ^ Team.Players[2].IsDisplayed);
+
+					if (Team.Players.count != 3) break;
+					//if (Team.Players.existskey(0) == False || Team.Players.existskey(1) == False || Team.Players.existskey(2) == False) break;
+
+					if (Team.Players[0].IsDisplayed == False) Label_First.Value = "???";
+					else Label_First.Value = Team.Players[0].Login;
+
+					if (Team.Players[1].IsDisplayed == False) Label_Second.Value = "???";
+					else Label_Second.Value = Team.Players[1].Login;
+
+					if (Team.Players[2].IsDisplayed == False) Label_Third.Value = "???";
+					else Label_Third.Value = Team.Players[2].Login;
+					
+					break;
+				}
+			}
+		}
+
+		
+
+		Void UpdateNextPlayerMenu(Text _NextPlayer) {
+			declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+			if(Net_RMX_Seeding_Teams_Config == []) return;
+
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+			declare CMlFrame Frame_NextPlayer <=> (Frame_Global.GetFirstChild("frame-next-player") as CMlFrame);
+
+			declare CMlLabel Label_NextPlayer <=> (Frame_NextPlayer.GetFirstChild("label-next-player") as CMlLabel);
+			Label_NextPlayer.Value = _NextPlayer;
+
+		}
+
+		main() {
+
+			log("Init " ^ C_AttachId);
+
+			declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+			declare CMlFrame Frame_PickOrder <=> (Page.GetFirstChild("frame-select-order") as CMlFrame);
+
+			wait(InputPlayer != Null);
+
+
+			declare netread Integer Net_RMX_Seeding_Ranking_Update for Teams[0] = 0;
+			declare netread Integer Net_RMX_Seeding_Upper_Ranking_Update for Teams[0] = 0;
+			declare netread Integer Net_RMX_Seeding_Display_HUD for Teams[0] = 0;
+			declare netread Integer Net_RMX_Teams_Picking_Updates for Teams[0] = 0;
+			declare netread Integer Net_RMX_LocalMapRecords_Update for Teams[0] = 0;
+			declare netread Text Net_RMX_NextPlayer_Player for UI = "";
+
+			declare Integer Last_RMX_Seeding_Update = Net_RMX_Seeding_Ranking_Update;
+			declare Integer Last_RMX_Seeding_Point_Update = Net_RMX_Seeding_Upper_Ranking_Update;
+			declare Integer Last_RMX_Seeding_Display_HUD = Net_RMX_Seeding_Display_HUD;
+			declare Integer Last_RMX_Teams_Picking_Updates = Net_RMX_Teams_Picking_Updates;
+			declare Integer Last_RMX_LocalMapRecords_Update = Net_RMX_LocalMapRecords_Update;
+			declare Text Last_RMX_NextPlayer_Player = Net_RMX_NextPlayer_Player;
+
+
+
+			log("Init " ^ C_AttachId ^ " " ^ Net_RMX_Seeding_Ranking_Update ^ " " ^ Last_RMX_Seeding_Update);
+
+			DynaMLSetup();
+
+			Frame_Global.Visible = True;
+			
+			while (True) {
+				yield;
+				if (Net_RMX_Seeding_Display_HUD != Last_RMX_Seeding_Display_HUD) {
+					if (Net_RMX_Seeding_Display_HUD == 0) {
+						Frame_Global.Visible = False;
+						Frame_PickOrder.Visible = True;
+						UpdatePickerMenu();
+					}
+					else if (Net_RMX_Seeding_Display_HUD == 1) {
+						Frame_Global.Visible = True;
+						Frame_PickOrder.Visible = False;
+					}
+					Last_RMX_Seeding_Display_HUD = Net_RMX_Seeding_Display_HUD;
+				}
+
+				if (Net_RMX_Seeding_Upper_Ranking_Update != Last_RMX_Seeding_Point_Update) {
+					UpdatePointsRanking();
+					UpdateSpecificRanking("LiveRanking");
+					
+					Last_RMX_Seeding_Point_Update = Net_RMX_Seeding_Upper_Ranking_Update;
+				}
+
+				if (Net_RMX_Seeding_Ranking_Update != Last_RMX_Seeding_Update) {
+					UpdateRankings();
+					
+					Last_RMX_Seeding_Update = Net_RMX_Seeding_Ranking_Update;
+				}
+
+				if (Net_RMX_Teams_Picking_Updates != Last_RMX_Teams_Picking_Updates) {
+
+
+					UpdatePickerMenu();
+					Last_RMX_Teams_Picking_Updates = Net_RMX_Teams_Picking_Updates;
+				}
+
+				if (Net_RMX_LocalMapRecords_Update != Last_RMX_LocalMapRecords_Update) {
+					
+					UpdateSpecificRanking("LocalRecords");
+					Last_RMX_LocalMapRecords_Update = Net_RMX_LocalMapRecords_Update;
+				}
+
+				if (Net_RMX_NextPlayer_Player != Last_RMX_NextPlayer_Player) {
+					UpdateNextPlayerMenu(Net_RMX_NextPlayer_Player);
+					Last_RMX_NextPlayer_Player = Net_RMX_NextPlayer_Player;
+				}
+
+
+				foreach(Event in PendingEvents) {
+					if (Event.Control == Null) continue; 
+					declare Quad <=> (Event.Control as CMlQuad);
+
+					if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-arrow-display") {
+						declare CMlFrame Frame_Event <=> (Page.GetFirstChild("frame-teams-hideable") as CMlFrame);
+
+						if (Frame_Event.Visible) {
+							Frame_Event.Visible = False;
+							Quad.Substyle = "DoubleArrowRightSlim_light";
+							HideTeamsLapsCps(True);
+						} else {
+							Frame_Event.Visible = True;
+							Quad.Substyle = "DoubleArrowLeftSlim_light";
+							HideTeamsLapsCps(False);
+						}					
+					}
+					if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-order-randomize") { 
+						log("Event " ^ Event.ControlId);
+						SendCustomEvent("RMX_Order_Randomize",[]);
+					}
+					if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-order-first") { 
+						log("Event " ^ Event.ControlId);
+						SendCustomEvent("RMX_Order_ChangeOrder",["0"]);
+					}
+					if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-order-second") { 
+						log("Event " ^ Event.ControlId);
+						SendCustomEvent("RMX_Order_ChangeOrder",["1"]);
+					}
+					if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-order-third") { 
+						log("Event " ^ Event.ControlId);
+						SendCustomEvent("RMX_Order_ChangeOrder",["2"]);
+					}
+					if (Event.Type == CMlScriptEvent::Type::MouseClick && Event.ControlId == "quad-order-reset") { 
+						log("Event " ^ Event.ControlId);
+						SendCustomEvent("RMX_Order_Reset",[]);
+					}
+				}
+			}
+		}
+
+
+		--></script>
+	</manialink>
+	""";
+
+	Layers::Create(C_ML_RMX_Seeding, MLText);
+	Layers::SetType(C_ML_RMX_Seeding, CUILayer::EUILayerType::Normal);
+	Layers::Attach(C_ML_RMX_Seeding);
+}
+
 
 Void UpdateScoresTableFooter(Boolean _IsWarmUp){
 	declare Text[] Parts;
