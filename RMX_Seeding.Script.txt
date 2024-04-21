@@ -486,7 +486,7 @@ Scores::Clear(Scores::C_Level_Round);
 UIModules_ScoresTable::SetScoreMode(UIModules_ScoresTable::C_Mode_PrevTime);
 SortScoreboard();
 RMXTeams::PrepareRound();
-//Start race for 1st player of each team
+//Start race for 1st player of each team, yes
 StartTime = Now + Race::C_SpawnDuration;
 EndTime = -1;
 //yeet to spectator non registered players
