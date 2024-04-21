@@ -1,0 +1,132 @@
+//#RequireContext CSmMlScriptIngame
+
+#Include "Modes/Libs/RMXTeams.Script.txt" as RMXTeams
+
+
+#Const C_Id "RMX_Chrono"
+#Const C_Version "2.0"
+
+Text GetManialink() {
+    return """
+    <?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+    <manialink version="3" name="{{{C_Id}}}">
+        <stylesheet>
+            <style class="text" textfont="RajdhaniMono" halign="center" valign="center" textcolor="FFFFFFFF"/>
+        </stylesheet>
+        <frame pos="0 -80" z-index="-2" hidden="1" id="frame-global">
+            <label id="label-chrono" class="text" size="50 10"  textsize="15" text="--:--.--" textemboss="1" scale="0.8"/>
+            <label id="label-player" class="text" pos="0 12" size="70 10" textsize="5" textemboss="1" scale="1.2"/>
+        </frame>
+
+        <script><!--
+            #Include "TextLib" as TL
+            #Include "ColorLib" as CL
+
+            #Const C_Id {{{dump(C_Id)}}}
+            #Const C_Version {{{dump(C_Version)}}}
+
+            {{{dumptype(RMXTeams::K_Player)}}}
+            {{{dumptype(RMXTeams::K_Team)}}}
+            {{{dumptype(RMXTeams::K_Config)}}}
+
+            Boolean IsRegistered(CUser _User){
+                declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+    
+                foreach(I => Team in Net_RMX_Seeding_Teams_Config){
+                    foreach(J => Player in Team.Players){
+                        if(Player.Login == _User.Login){
+                            return True;
+                        }
+                    }
+                }
+                return False;
+            }
+
+            K_Team GetTeamFromUser(CUser _User){
+                declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+    
+                foreach(I => Team in Net_RMX_Seeding_Teams_Config){
+                    foreach(J => Player in Team.Players){
+                        if(Player.Login == _User.Login){
+                            return Team;
+                        }
+                    }
+                }
+                return K_Team{};
+            }
+
+            Boolean InputPlayerIsSpectator() {
+                return (InputPlayer.SpawnStatus == CSmPlayer::ESpawnStatus::NotSpawned);
+            }
+
+            Text Hex6ToHex3(Text _Hex6){
+                return CL::RgbToHex3(CL::Hex6ToRgb(_Hex6));
+            }
+
+
+            main() {
+                log("Init v"^ C_Version);
+                declare CMlFrame Frame_Global <=> (Page.GetFirstChild("frame-global") as CMlFrame);
+                declare CMlLabel Text_Chrono <=> (Frame_Global.GetFirstChild("label-chrono") as CMlLabel);
+                declare CMlLabel Text_PlayerName <=> (Frame_Global.GetFirstChild("label-player") as CMlLabel);
+
+                wait (InputPlayer != Null);
+
+                declare CUIConfig::EUIStatus Last_UIStatus;
+
+                declare Ident Last_GUIPlayerId;
+
+                declare netread K_Team[] Net_RMX_Seeding_Teams_Config for Teams[0];
+    
+                while(True) {
+                    yield;
+                    if (!PageIsVisible) continue;
+
+                    if (GUIPlayer != Null && GUIPlayer.SpawnStatus != CSmPlayer::ESpawnStatus::NotSpawned) {
+                        Frame_Global.Visible = True;
+
+                        // Manage Chrono
+                        if (GUIPlayer.CurrentLapTime < 0) {
+                            Text_Chrono.Value = TL::TimeToText(0, True);
+                        } else {
+                            Text_Chrono.Value = TL::TimeToText(GUIPlayer.CurrentLapTime, True);
+                        }
+
+                        if (UI != Null && Last_UIStatus != UI.UIStatus) {
+                            Last_UIStatus = UI.UIStatus;
+                            switch (UI.UIStatus) {
+                                case CUIConfig::EUIStatus::Warning: Text_Chrono.TextColor = <1., 0.6, 0.>;
+                                case CUIConfig::EUIStatus::Error: Text_Chrono.TextColor = <1., 0., 0.>;
+                                case CUIConfig::EUIStatus::Official: Text_Chrono.TextColor = <0., 0.6, 0.>;
+                                default: Text_Chrono.TextColor = <1., 1., 1.>;
+                            }
+                        }
+
+                        // Manage Player Name
+                        if (Last_GUIPlayerId != GUIPlayer.Id) {
+                            Last_GUIPlayerId = GUIPlayer.Id;
+
+
+                            Text_PlayerName.Value =  GUIPlayer.User.Name;
+
+
+                            if (InputPlayerIsSpectator()) {
+                                foreach (Key => Team in Net_RMX_Seeding_Teams_Config) {
+                                    if (GUIPlayer != Null && IsRegistered(GUIPlayer.User)) {
+                                        declare Team = GetTeamFromUser(GUIPlayer.User);
+                                        Text_PlayerName.Value = "[$"^Hex6ToHex3(Team.Hex6)^Team.Trigram^"$g] " ^ GUIPlayer.User.Name;
+                                    }
+                                }
+                            } else {
+                                Text_PlayerName.Value = "";
+                            }
+                        }
+                    } else {
+                        Frame_Global.Visible = False;
+                    }
+                }
+            }
+        --></script>
+    </manialink>
+    """;
+}
