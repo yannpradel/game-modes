@@ -36,7 +36,7 @@
  #Setting S_ChatTime 6
  #Setting S_EnableJoinLeaveNotifications False
  //L16N [Knockout] Setting for the KO mode, for exemple if the setting is "4,16,16" it means : "4 players eliminated per round until 16 players are left (16 is written twice, so two extra players are eliminated), then 2 players eliminated per round until 4 players are left (one extra player), then 1 player eliminated per round (default)".
- #Setting S_EliminatedPlayersNbRanks "4,8" as _("Nb of players above which one extra elim. /round")
+ #Setting S_EliminatedPlayersNbRanks "4,16" as _("Nb of players above which one extra elim. /round")
  #Setting S_RoundsWithoutElimination 0 as _("Rounds without elimination")
  #Setting S_EarlyEndMatchCallback True as "<hidden>"
  #Setting S_MatchPosition -1 as "<hidden>" // Use to display player's final rank in CotD
@@ -769,7 +769,7 @@
 				Quad_Heart.Opacity = 1.;
 				Quad_Heart_Left.Opacity = 1.;
 
-				declare Text VideoUrl = "https://cdn.discordapp.com/attachments/922936935155105853/1207397329120927876/outpt.webm?ex=65df7f63&is=65cd0a63&hm=f441b2803e7403192f54077bb9d44c5d172c04e925f9398aaab5eb60fb03cd70&";
+				declare Text VideoUrl = "https://cdn.discordapp.com/attachments/922936935155105853/1236767293892202516/outpt_1.webm?ex=663934cc&is=6637e34c&hm=1b40f0f1495f93f5f5cb7c1f858f9042e0891ea77d6cad3d4e545253485a1fdc&";
 				if (VideoUrl != "") {
 					declare CVideo CloudsVideo <=> Video.CreateVideo(VideoUrl, False, True);
 

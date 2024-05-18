@@ -24,7 +24,8 @@
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
 // Settings
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ //
-#Setting S_ScriptEnvironment "production"
+//#Setting S_ScriptEnvironment "production"
+#Setting S_ScriptEnvironment "development"
 #Setting S_FinishTimeout 20 as _("Finish timeout")
 #Setting S_PointsLimit -1
 #Setting S_RoundsPerMap 5
@@ -156,7 +157,7 @@ UIModules_Sign16x9Small::SetScoreMode(UIModules_Sign16x9Small::C_ScoreMode_Point
 // Hide SM Overlay
 UIManager.UIAll.OverlayHideSpectatorInfos = True;
 UIManager.UIAll.OverlayHideCountdown = True;
-if (S_ScriptEnvironment == "development") Users_SetNbFakeUsers(0,0);
+if (S_ScriptEnvironment == "development") Users_SetNbFakeUsers(C_FakeUsersNb,0);
 UIManager.UIAll.PlayerDisableFreeCam = True;
 
 SetML();
@@ -171,6 +172,7 @@ declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
 declare netwrite K_MapTeam[] CurrentMapTeam for Teams[0] = [];
 MapTeams = [];
 CurrentMapTeam = [];
+
 ***
 
 ***Match_Yield***
@@ -277,14 +279,11 @@ foreach (Player in ShuffledPlayers) {
             CurrentMapTeam[RandomIndex].Player1Login = Player.User.Name;
             IsOnTeam = True;
 			UnassignedPlayers -= 1;
-        } else if (CurrentMapTeam[RandomIndex].Player2Login == "" && (!SameTeam(CurrentMapTeam[RandomIndex].Player1Login, Player.User.Name) || UnassignedPlayers <= 2)) { //si il ne reste que 2j
+        } else if (CurrentMapTeam[RandomIndex].Player2Login == "") { 
 			CurrentMapTeam[RandomIndex].Player2Login = Player.User.Name;
 			IsOnTeam = True;
-			if(UnassignedPlayers == 2 && SameTeam(CurrentMapTeam[RandomIndex].Player1Login, Player.User.Name)) log("noluck ^^");
 			UnassignedPlayers -= 1;
-			break;
         } else if (UnassignedPlayers == 1 && Players.count % 2 != 0) {
-			log("players are odd, a team has 3 players");
 			CurrentMapTeam[RandomIndex].LastPlayerLogin = Player.User.Name;
 			IsOnTeam = True;
 			UnassignedPlayers -= 1;
@@ -528,9 +527,9 @@ Void SetML() {
             <style class="center" halign="center" valign="center" textcolor="ffffffff" />
         </stylesheet>
 		<framemodel id="model-players">
-			<label id="label-team" pos="-55 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium"/>
-			<label id="player1" pos="0 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium"/>
-			<label id="player2" pos="40 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium"/>
+			<label id="label-team" pos="-55 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium" scriptevents=1/>
+			<label id="player1" pos="0 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium" scriptevents=1/>
+			<label id="player2" pos="40 87.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium" scriptevents=1/>
 			<label id="player3" pos = "20 77.2" z-index="0" size="20 5" text="" halign="center" style="CardButtonMedium" hidden="1"/>
 		</framemodel>
 		<framemodel id="model-ranking">
@@ -577,7 +576,7 @@ Void SetML() {
 			<frame id="frame-end" pos="0 0" hidden="0" scale="0">
 				<frameinstance modelid="frame-endmatch" pos="0 0"/>
 			</frame>
-			<quad scriptevents="1" id="quad-discord" image="https://cdn.discordapp.com/attachments/922936935155105853/1195774589838569613/discord-logo-4-1.png?" pos="148 -30" z-index="0" size="10 10" bgcolor="FFFFFFFF" opacity="1" hidden="0"/>
+			<quad scriptevents="1" id="quad-discord" image="https://i.imgur.com/egjSCtM.png" pos="148 -30" z-index="0" size="10 10" bgcolor="FFFFFFFF" opacity="1" hidden="0"/>
         </frame>
 
         <script><!--
@@ -916,18 +915,6 @@ Void SetML() {
 		case 2: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0], Parts[1]));
 		case 3: UIModules_ScoresTable::SetFooterInfo(TL::Compose(Message, Parts[0], Parts[1], Parts[2]));
 	}
-}
-
-Boolean SameTeam(Text _Player1Login, Text _Player2Login) {
-    declare netwrite K_MapTeam[] MapTeams for Teams[0] = [];
-    foreach (Team in MapTeams) {
-
-        if ((Team.Player1Login == _Player1Login && Team.Player2Login == _Player2Login) || 
-            (Team.Player1Login == _Player2Login && Team.Player2Login == _Player1Login)) {
-            return True;
-        }
-    }
-    return False;
 }
 
 
